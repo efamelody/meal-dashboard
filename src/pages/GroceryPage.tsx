@@ -1,41 +1,56 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { ShoppingCart, Trash2, RefreshCw, CheckCheck, ArrowLeft } from "lucide-react";
-import { getGroceryList, toggleGroceryItem, clearGroceryList, generateGroceryList } from "../lib/db";
-import type { GroceryItem } from "../lib/types";
+import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
+import {
+  ShoppingCart,
+  Trash2,
+  RefreshCw,
+  CheckCheck,
+  ArrowLeft,
+} from "lucide-react"
+import {
+  getGroceryList,
+  toggleGroceryItem,
+  clearGroceryList,
+  generateGroceryList,
+} from "../lib/db"
+import type { GroceryItem } from "../lib/types"
 
 export default function GroceryPage() {
-  const [items, setItems] = useState<GroceryItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  const [items, setItems] = useState<GroceryItem[]>([])
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
-  useEffect(() => { getGroceryList().then(setItems); }, []);
+  useEffect(() => {
+    getGroceryList().then(setItems)
+  }, [])
 
-  const bought = items.filter((i) => i.is_bought).length;
-  const remaining = items.filter((i) => !i.is_bought);
-  const boughtItems = items.filter((i) => i.is_bought);
+  const bought = items.filter((i) => i.is_bought).length
+  const remaining = items.filter((i) => !i.is_bought)
+  const boughtItems = items.filter((i) => i.is_bought)
 
   async function handleToggle(id: string, current: boolean) {
-    await toggleGroceryItem(id, !current);
-    setItems(items.map((i) => i.id === id ? { ...i, is_bought: !current } : i));
+    await toggleGroceryItem(id, !current)
+    setItems(
+      items.map((i) => (i.id === id ? { ...i, is_bought: !current } : i)),
+    )
   }
 
   async function handleClear() {
-    await clearGroceryList();
-    setItems([]);
+    await clearGroceryList()
+    setItems([])
   }
 
   async function handleRegenerate() {
-    setLoading(true);
-    const list = await generateGroceryList();
-    setItems(list);
-    setLoading(false);
+    setLoading(true)
+    const list = await generateGroceryList()
+    setItems(list)
+    setLoading(false)
   }
 
   async function handleMarkAllBought() {
-    const updated = items.map((i) => ({ ...i, is_bought: true }));
-    for (const item of updated) await toggleGroceryItem(item.id, true);
-    setItems(updated);
+    const updated = items.map((i) => ({ ...i, is_bought: true }))
+    for (const item of updated) await toggleGroceryItem(item.id, true)
+    setItems(updated)
   }
 
   if (items.length === 0) {
@@ -48,7 +63,9 @@ export default function GroceryPage() {
           <div className="text-center py-24 text-[var(--muted-foreground)]">
             <ShoppingCart size={48} className="mx-auto mb-4 opacity-25" />
             <p className="text-base font-medium mb-2">No grocery list yet</p>
-            <p className="text-sm mb-6">Generate one from your weekly meal plan.</p>
+            <p className="text-sm mb-6">
+              Generate one from your weekly meal plan.
+            </p>
             <button
               onClick={() => navigate("/planner")}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
@@ -59,7 +76,7 @@ export default function GroceryPage() {
           </div>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -104,25 +121,32 @@ export default function GroceryPage() {
           <div className="h-2 bg-[var(--muted)] rounded-full overflow-hidden">
             <div
               className="h-full bg-[var(--accent)] rounded-full transition-all duration-500"
-              style={{ width: `${items.length ? (bought / items.length) * 100 : 0}%` }}
+              style={{
+                width: `${items.length ? (bought / items.length) * 100 : 0}%`,
+              }}
             />
           </div>
           {bought === items.length && items.length > 0 && (
-            <p className="text-xs text-[var(--accent)] font-medium mt-2 text-center">All done — happy cooking!</p>
+            <p className="text-xs text-[var(--accent)] font-medium mt-2 text-center">
+              All done — happy cooking!
+            </p>
           )}
         </div>
 
         {/* Smart deduction note */}
         {boughtItems.some((i) => i.is_bought) && (
           <div className="mb-4 px-4 py-3 rounded-xl bg-[var(--secondary)] text-[var(--primary)] text-xs">
-            <strong>Smart Deduction:</strong> Pre-checked items are already marked in stock in your inventory.
+            <strong>Smart Deduction:</strong> Pre-checked items are already
+            marked in stock in your inventory.
           </div>
         )}
 
         {/* Items to buy */}
         {remaining.length > 0 && (
           <div className="mb-6">
-            <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-2">To Buy ({remaining.length})</p>
+            <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-2">
+              To Buy ({remaining.length})
+            </p>
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden">
               {remaining.map((item, i) => (
                 <div key={item.id}>
@@ -133,12 +157,23 @@ export default function GroceryPage() {
                       checked={false}
                       onChange={() => handleToggle(item.id, false)}
                       className="w-4.5 h-4.5 rounded border-2 border-[var(--border)] accent-[var(--accent)]"
-                      style={{ width: "18px", height: "18px", accentColor: "var(--accent)" }}
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        accentColor: "var(--accent)",
+                      }}
                     />
-                    <span className="flex-1 text-sm text-[var(--foreground)]">{item.item_name}</span>
-                    <span className="text-xs text-[var(--muted-foreground)] font-medium">
-                      {item.quantity % 1 === 0 ? item.quantity : item.quantity.toFixed(1)} {item.unit}
+                    <span className="flex-1 text-sm text-[var(--foreground)]">
+                      {item.item_name}
                     </span>
+                    {item.quantity > 0 && (
+                      <span className="text-xs text-[var(--muted-foreground)] font-medium">
+                        {item.quantity % 1 === 0
+                          ? item.quantity
+                          : item.quantity.toFixed(1)}{" "}
+                        {item.unit}
+                      </span>
+                    )}
                   </label>
                 </div>
               ))}
@@ -149,7 +184,9 @@ export default function GroceryPage() {
         {/* Bought items */}
         {boughtItems.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-2">In Cart / In Stock ({boughtItems.length})</p>
+            <p className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-2">
+              In Cart / In Stock ({boughtItems.length})
+            </p>
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden opacity-60">
               {boughtItems.map((item, i) => (
                 <div key={item.id}>
@@ -159,12 +196,23 @@ export default function GroceryPage() {
                       type="checkbox"
                       checked={true}
                       onChange={() => handleToggle(item.id, true)}
-                      style={{ width: "18px", height: "18px", accentColor: "var(--accent)" }}
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        accentColor: "var(--accent)",
+                      }}
                     />
-                    <span className="flex-1 text-sm text-[var(--muted-foreground)] line-through">{item.item_name}</span>
-                    <span className="text-xs text-[var(--muted-foreground)]">
-                      {item.quantity % 1 === 0 ? item.quantity : item.quantity.toFixed(1)} {item.unit}
+                    <span className="flex-1 text-sm text-[var(--muted-foreground)] line-through">
+                      {item.item_name}
                     </span>
+                    {item.quantity > 0 && (
+                      <span className="text-xs text-[var(--muted-foreground)]">
+                        {item.quantity % 1 === 0
+                          ? item.quantity
+                          : item.quantity.toFixed(1)}{" "}
+                        {item.unit}
+                      </span>
+                    )}
                   </label>
                 </div>
               ))}
@@ -173,5 +221,5 @@ export default function GroceryPage() {
         )}
       </div>
     </div>
-  );
+  )
 }

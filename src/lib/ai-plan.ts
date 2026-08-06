@@ -2,25 +2,31 @@
 // Replace the placeholder body with a real Gemini API call using
 // @google/generative-ai once an API key is available.
 
-import { getMeals, getInventory } from "./db";
-import type { DayOfWeek, Meal, MealType } from "./types";
+import { getMeals, getInventory } from "./db"
+import type { DayOfWeek, Meal, MealType } from "./types"
 
 export interface AIPlanRequest {
-  target_calories: number;
-  target_protein_g: number;
-  target_carbs_g: number;
-  target_fat_g: number;
+  target_calories: number
+  target_protein_g: number
+  target_carbs_g: number
+  target_fat_g: number
 }
 
-export type AIPlanSlot = { day: DayOfWeek; meal_type: MealType; meal_id: string };
+export type AIPlanSlot = {
+  day: DayOfWeek
+  meal_type: MealType
+  meal_id: string
+}
 
 export interface AIPlanResponse {
-  plan: AIPlanSlot[];
-  reasoning: string;
+  plan: AIPlanSlot[]
+  reasoning: string
 }
 
-export async function generateAIMealPlan(req: AIPlanRequest): Promise<AIPlanResponse> {
-  const [meals, inventory] = await Promise.all([getMeals(), getInventory()]);
+export async function generateAIMealPlan(
+  req: AIPlanRequest,
+): Promise<AIPlanResponse> {
+  const [meals, inventory] = await Promise.all([getMeals(), getInventory()])
 
   // ── Gemini integration point ───────────────────────────────────────────
   // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -33,18 +39,16 @@ export async function generateAIMealPlan(req: AIPlanRequest): Promise<AIPlanResp
   // ──────────────────────────────────────────────────────────────────────
 
   // Stub: naive greedy allocation for demonstration
-  const DAYS: DayOfWeek[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"];
+  const DAYS: DayOfWeek[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  const TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
 
-  const byType = (t: MealType) => meals.filter((m) => m.meal_type === t);
-  const pick = (arr: Meal[]) => arr[Math.floor(Math.random() * arr.length)];
+  const pick = (arr: Meal[]) => arr[Math.floor(Math.random() * arr.length)]
 
-  const plan: AIPlanSlot[] = [];
+  const plan: AIPlanSlot[] = []
   for (const day of DAYS) {
     for (const meal_type of TYPES) {
-      const pool = byType(meal_type);
-      if (pool.length) {
-        plan.push({ day, meal_type, meal_id: pick(pool).id });
+      if (meals.length) {
+        plan.push({ day, meal_type, meal_id: pick(meals).id })
       }
     }
   }
@@ -52,10 +56,14 @@ export async function generateAIMealPlan(req: AIPlanRequest): Promise<AIPlanResp
   return {
     plan,
     reasoning: `Stub plan generated targeting ${req.target_calories} kcal/day. Connect Google Gemini for intelligent macro-balanced allocation.`,
-  };
+  }
 }
 
-function buildPrompt(req: AIPlanRequest, meals: Meal[], inventory: ReturnType<typeof Array.prototype.map>): string {
+function buildPrompt(
+  req: AIPlanRequest,
+  meals: Meal[],
+  inventory: ReturnType<typeof Array.prototype.map>,
+): string {
   return `
 You are a nutrition assistant. Create a 7-day meal plan using ONLY the meals provided.
 
@@ -76,5 +84,5 @@ Return a JSON object with this shape:
   "plan": [{ "day": "Mon", "meal_type": "Breakfast", "meal_id": "<uuid>" }],
   "reasoning": "<brief explanation>"
 }
-`.trim();
+`.trim()
 }

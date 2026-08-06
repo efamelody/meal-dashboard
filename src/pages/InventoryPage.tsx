@@ -1,85 +1,131 @@
-import { useState, useEffect } from "react";
-import { Plus, Trash2, Pencil, Check, X, Package } from "lucide-react";
-import { getInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem } from "../lib/db";
-import type { InventoryItem } from "../lib/types";
+import { useState, useEffect } from "react"
+import { Trash2, Pencil, Check, X, Package } from "lucide-react"
+import {
+  getInventory,
+  addInventoryItem,
+  updateInventoryItem,
+  deleteInventoryItem,
+  getIngredientSuggestions,
+} from "../lib/db"
+import type { InventoryItem, StockStatus } from "../lib/types"
+import ItemAutocomplete from "../components/ItemAutocomplete"
+import { STAPLE_ITEMS } from "../lib/staples"
 
-const UNITS = ["g", "kg", "ml", "L", "cup", "tbsp", "tsp", "piece", "slice"];
+const STATUS_ORDER: StockStatus[] = ["in_stock", "low", "out"]
+const STATUS_LABELS: Record<StockStatus, string> = {
+  in_stock: "In Stock",
+  low: "Running Low",
+  out: "Out of Stock",
+}
+const STATUS_BADGE: Record<StockStatus, string> = {
+  in_stock: "bg-green-100 text-green-700",
+  low: "bg-amber-100 text-amber-700",
+  out: "bg-red-100 text-red-600",
+}
 
 export default function InventoryPage() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [itemName, setItemName] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [unit, setUnit] = useState("g");
+  const [items, setItems] = useState<InventoryItem[]>([])
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [itemName, setItemName] = useState("")
+  const [editId, setEditId] = useState<string | null>(null)
 
-  useEffect(() => { getInventory().then(setItems); }, []);
+  useEffect(() => {
+    Promise.all([getInventory(), getIngredientSuggestions()]).then(
+      ([inventory, sugg]) => {
+        setItems(inventory)
+        setSuggestions(sugg)
+      },
+    )
+  }, [])
 
-  const inStock = items.filter((i) => i.is_in_stock).length;
+  const inStock = items.filter((i) => i.stock_status === "in_stock").length
+  const lowCount = items.filter((i) => i.stock_status === "low").length
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!itemName.trim()) return;
+  async function addOrUpdate(name: string, status: StockStatus) {
+    const existing = items.find(
+      (i) => i.item_name.toLowerCase() === name.toLowerCase(),
+    )
+    if (existing) {
+      await updateInventoryItem(existing.id, { stock_status: status })
+      setItems(
+        items.map((i) =>
+          i.id === existing.id ? { ...i, stock_status: status } : i,
+        ),
+      )
+      return
+    }
     const item = await addInventoryItem({
-      item_name: itemName.trim(),
-      quantity: parseFloat(quantity) || 0,
-      unit,
-      is_in_stock: true,
-    });
-    setItems([...items, item]);
-    setItemName(""); setQuantity(""); setUnit("g");
-    setShowForm(false);
+      item_name: name,
+      stock_status: status,
+    })
+    setItems([...items, item])
   }
 
-  async function handleToggle(item: InventoryItem) {
-    await updateInventoryItem(item.id, { is_in_stock: !item.is_in_stock });
-    setItems(items.map((i) => i.id === item.id ? { ...i, is_in_stock: !i.is_in_stock } : i));
+  async function handleCommit(name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    await addOrUpdate(trimmed, "in_stock")
+    setItemName("")
+  }
+
+  async function addStaple(staple: string) {
+    const existing = items.find(
+      (i) => i.item_name.toLowerCase() === staple.toLowerCase(),
+    )
+    if (existing && existing.stock_status === "in_stock") return
+    await addOrUpdate(staple, "in_stock")
+  }
+
+  async function cycleStatus(item: InventoryItem) {
+    const next =
+      STATUS_ORDER[
+        (STATUS_ORDER.indexOf(item.stock_status) + 1) % STATUS_ORDER.length
+      ]
+    await updateInventoryItem(item.id, { stock_status: next })
+    setItems(
+      items.map((i) => (i.id === item.id ? { ...i, stock_status: next } : i)),
+    )
   }
 
   async function handleDelete(id: string) {
-    await deleteInventoryItem(id);
-    setItems(items.filter((i) => i.id !== id));
+    await deleteInventoryItem(id)
+    setItems(items.filter((i) => i.id !== id))
   }
 
-  async function handleEdit(item: InventoryItem) {
+  function handleEdit(item: InventoryItem) {
     if (editId === item.id) {
-      setEditId(null); return;
+      setEditId(null)
+      setItemName("")
+      return
     }
-    setEditId(item.id);
-    setItemName(item.item_name);
-    setQuantity(String(item.quantity));
-    setUnit(item.unit);
+    setEditId(item.id)
+    setItemName(item.item_name)
   }
 
   async function saveEdit(id: string) {
-    await updateInventoryItem(id, {
-      item_name: itemName.trim(),
-      quantity: parseFloat(quantity) || 0,
-      unit,
-    });
-    setItems(items.map((i) => i.id === id ? { ...i, item_name: itemName.trim(), quantity: parseFloat(quantity) || 0, unit } : i));
-    setEditId(null);
-    setItemName(""); setQuantity(""); setUnit("g");
+    const name = itemName.trim()
+    if (!name) {
+      setEditId(null)
+      return
+    }
+    await updateInventoryItem(id, { item_name: name })
+    setItems(items.map((i) => (i.id === id ? { ...i, item_name: name } : i)))
+    setEditId(null)
+    setItemName("")
   }
 
   return (
     <div className="flex-1 p-8 min-h-screen">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-3xl text-[var(--foreground)]">Kitchen Inventory</h2>
-            <p className="text-sm text-[var(--muted-foreground)] mt-1">
-              {inStock} of {items.length} items in stock
-            </p>
-          </div>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <Plus size={16} />
-            Add Item
-          </button>
+        <div className="mb-8">
+          <h2 className="text-3xl text-[var(--foreground)]">
+            Kitchen Inventory
+          </h2>
+          <p className="text-sm text-[var(--muted-foreground)] mt-1">
+            {inStock} of {items.length} items in stock
+            {lowCount > 0 ? ` · ${lowCount} running low` : ""}
+          </p>
         </div>
 
         {/* Progress bar */}
@@ -94,42 +140,53 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {/* Add form */}
-        {showForm && (
-          <form onSubmit={handleAdd} className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 mb-6">
-            <h3 className="text-base font-semibold mb-4">Add to Inventory</h3>
-            <div className="flex gap-2">
-              <input
-                required value={itemName} onChange={(e) => setItemName(e.target.value)}
-                placeholder="Item name"
-                className="flex-1 px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              />
-              <input
-                type="number" min="0" value={quantity} onChange={(e) => setQuantity(e.target.value)}
-                placeholder="Qty"
-                className="w-20 px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              />
-              <select
-                value={unit} onChange={(e) => setUnit(e.target.value)}
-                className="w-24 px-2 py-2.5 pr-6 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              >
-                {UNITS.map((u) => <option key={u}>{u}</option>)}
-              </select>
-              <button type="submit" className="px-3 py-2.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)]">
-                <Check size={16} />
-              </button>
-              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)]">
-                <X size={16} />
-              </button>
-            </div>
-          </form>
-        )}
+        {/* Staples quick-add */}
+        <div className="mb-6">
+          <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground)] mb-2">
+            Staples — tap to add
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {STAPLE_ITEMS.map((staple) => {
+              const existing = items.find(
+                (i) => i.item_name.toLowerCase() === staple.toLowerCase(),
+              )
+              const isInStock = existing?.stock_status === "in_stock"
+              return (
+                <button
+                  key={staple}
+                  type="button"
+                  onClick={() => addStaple(staple)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    isInStock
+                      ? "bg-green-100 text-green-700"
+                      : "bg-[var(--secondary)] text-[var(--primary)] hover:opacity-80"
+                  }`}
+                >
+                  {staple}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Add item */}
+        <div className="mb-6">
+          <ItemAutocomplete
+            value={itemName}
+            onChange={setItemName}
+            suggestions={suggestions}
+            placeholder="Type an item and press Enter to add"
+            onCommit={handleCommit}
+          />
+        </div>
 
         {/* Inventory list */}
         {items.length === 0 ? (
           <div className="text-center py-20 text-[var(--muted-foreground)]">
             <Package size={40} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Your inventory is empty. Add some items above.</p>
+            <p className="text-sm">
+              Your inventory is empty. Add some items above.
+            </p>
           </div>
         ) : (
           <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden">
@@ -138,51 +195,62 @@ export default function InventoryPage() {
                 {i > 0 && <div className="h-px bg-[var(--border)] mx-5" />}
                 {editId === item.id ? (
                   <div className="flex gap-2 items-center px-5 py-3">
-                    <input value={itemName} onChange={(e) => setItemName(e.target.value)}
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]" />
-                    <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)}
-                      className="w-20 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]" />
-                    <select value={unit} onChange={(e) => setUnit(e.target.value)}
-                      className="w-24 px-2 py-1.5 pr-6 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none">
-                      {UNITS.map((u) => <option key={u}>{u}</option>)}
-                    </select>
-                    <button onClick={() => saveEdit(item.id)} className="p-1.5 rounded-lg bg-[var(--accent)] text-white"><Check size={14} /></button>
-                    <button onClick={() => setEditId(null)} className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)]"><X size={14} /></button>
+                    <div className="flex-1">
+                      <ItemAutocomplete
+                        value={itemName}
+                        onChange={setItemName}
+                        suggestions={suggestions}
+                        placeholder="Item name"
+                      />
+                    </div>
+                    <button
+                      onClick={() => cycleStatus(item)}
+                      className={`px-2.5 py-1.5 rounded-full text-xs font-medium ${STATUS_BADGE[item.stock_status]}`}
+                    >
+                      {STATUS_LABELS[item.stock_status]}
+                    </button>
+                    <button
+                      onClick={() => saveEdit(item.id)}
+                      className="p-1.5 rounded-lg bg-[var(--accent)] text-white"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => setEditId(null)}
+                      className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)]"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
                 ) : (
-                  <div className={`flex items-center justify-between px-5 py-3.5 transition-colors ${item.is_in_stock ? "" : "opacity-50"}`}>
+                  <div
+                    className={`flex items-center justify-between px-5 py-3.5 transition-colors ${
+                      item.stock_status === "out" ? "opacity-60" : ""
+                    }`}
+                  >
                     <div className="flex items-center gap-3">
-                      {/* Toggle switch */}
-                      <button
-                        onClick={() => handleToggle(item)}
-                        className={`relative w-10 h-5.5 rounded-full transition-colors flex-shrink-0 ${item.is_in_stock ? "bg-[var(--accent)]" : "bg-[var(--muted)]"}`}
-                        style={{ height: "22px", width: "40px" }}
-                        title={item.is_in_stock ? "In stock" : "Out of stock"}
-                      >
-                        <span
-                          className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow-sm transition-transform ${item.is_in_stock ? "translate-x-[18px]" : "translate-x-0"}`}
-                          style={{ width: "18px", height: "18px", transform: item.is_in_stock ? "translateX(18px)" : "translateX(0)" }}
-                        />
-                      </button>
-                      <div>
-                        <span className={`text-sm font-medium ${item.is_in_stock ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] line-through"}`}>
-                          {item.item_name}
-                        </span>
-                        <span className="ml-2 text-xs text-[var(--muted-foreground)]">
-                          {item.quantity} {item.unit}
-                        </span>
-                      </div>
+                      <span className="text-sm font-medium text-[var(--foreground)]">
+                        {item.item_name}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1">
-                      {item.is_in_stock && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--secondary)] text-[var(--primary)] font-medium mr-2">
-                          In Stock
-                        </span>
-                      )}
-                      <button onClick={() => handleEdit(item)} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors">
+                      <button
+                        onClick={() => cycleStatus(item)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_BADGE[item.stock_status]} hover:opacity-80 transition-opacity`}
+                        title="Tap to change status"
+                      >
+                        {STATUS_LABELS[item.stock_status]}
+                      </button>
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+                      >
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => handleDelete(item.id)} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-500 hover:bg-red-50 transition-colors"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -194,5 +262,5 @@ export default function InventoryPage() {
         )}
       </div>
     </div>
-  );
+  )
 }
