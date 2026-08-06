@@ -1,0 +1,10 @@
+{
+  "description": "Plan your weekly meals effortlessly with a dynamic meal planner and smart grocery list generator, tailored for users seeking healthy eating and organization.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
