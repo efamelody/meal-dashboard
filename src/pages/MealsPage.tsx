@@ -18,6 +18,8 @@ import {
 } from "../lib/db"
 import { suggestIngredients, estimateNutrition } from "../lib/gemini"
 import IngredientInput from "../components/IngredientInput"
+import { useAuth } from "../context/AuthContext"
+import { demoMeals, demoSuggestions } from "../lib/demo"
 import type { Meal } from "../lib/types"
 
 function MacroBadge({
@@ -47,6 +49,9 @@ function MacroBadge({
 const MAX_VISIBLE_INGREDIENTS = 6
 
 export default function MealsPage() {
+  const { session, openAuth } = useAuth()
+  const userId = session?.user?.id ?? null
+
   const [meals, setMeals] = useState<Meal[]>([])
   const [showForm, setShowForm] = useState(false)
   const [showAllId, setShowAllId] = useState<string | null>(null)
@@ -64,13 +69,21 @@ export default function MealsPage() {
   const [aiError, setAiError] = useState("")
 
   useEffect(() => {
+    if (!userId) {
+      setMeals(demoMeals)
+      return
+    }
     getMeals().then(setMeals)
-  }, [])
+  }, [userId])
 
   useEffect(() => {
     if (!showForm) return
+    if (!userId) {
+      setSuggestions(demoSuggestions)
+      return
+    }
     getIngredientSuggestions().then(setSuggestions)
-  }, [showForm])
+  }, [showForm, userId])
 
   async function handleSuggestIngredients() {
     if (!name.trim() || aiIngredientsLoading) return
@@ -120,6 +133,10 @@ export default function MealsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!userId) {
+      openAuth()
+      return
+    }
     const meal = await addMeal({
       name,
       calories: parseInt(calories) || 0,
@@ -144,6 +161,10 @@ export default function MealsPage() {
   }
 
   async function handleDelete(id: string) {
+    if (!userId) {
+      openAuth()
+      return
+    }
     await deleteMeal(id)
     setMeals(meals.filter((m) => m.id !== id))
   }

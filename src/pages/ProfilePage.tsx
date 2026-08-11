@@ -18,11 +18,16 @@ import {
   ACTIVITY_DESCRIPTIONS,
 } from "../lib/nutrition"
 import type { UserProfile, Sex, Goal, ActivityLevel } from "../lib/types"
+import { useAuth } from "../context/AuthContext"
+import { demoProfile } from "../lib/demo"
 
 const GOALS = Object.keys(GOAL_LABELS) as Goal[]
 const ACTIVITIES = Object.keys(ACTIVITY_LABELS) as ActivityLevel[]
 
 export default function ProfilePage() {
+  const { session, openAuth } = useAuth()
+  const userId = session?.user?.id ?? null
+
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [result, setResult] = useState<UserProfile | null>(null)
 
@@ -37,24 +42,37 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
+  function applyProfile(p: UserProfile) {
+    setProfile(p)
+    setResult(p)
+    setAge(String(p.age))
+    setSex(p.sex)
+    setHeightCm(String(p.height_cm))
+    setWeightKg(String(p.weight_kg))
+    setGoal(p.goal)
+    setActivityLevel(p.activity_level)
+  }
+
   useEffect(() => {
+    if (!userId) {
+      applyProfile(demoProfile)
+      setLoading(false)
+      return
+    }
     getUserProfile()
       .then((p) => {
         if (!p) return
-        setProfile(p)
-        setResult(p)
-        setAge(String(p.age))
-        setSex(p.sex)
-        setHeightCm(String(p.height_cm))
-        setWeightKg(String(p.weight_kg))
-        setGoal(p.goal)
-        setActivityLevel(p.activity_level)
+        applyProfile(p)
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [userId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!userId) {
+      openAuth()
+      return
+    }
     const ageNum = parseInt(age, 10)
     const height = parseFloat(heightCm)
     const weight = parseFloat(weightKg)

@@ -2,6 +2,7 @@
 // The app authenticates with the service-role key for now (single-user dev),
 // which bypasses RLS. Function signatures are unchanged so pages don't care.
 import { supabase, getUserId } from "./supabase"
+import { addDays, startOfWeek } from "./dates"
 import type {
   Meal,
   MealIngredient,
@@ -15,6 +16,7 @@ import type {
   DashboardSummary,
   DayCalories,
   MacroTotals,
+  ISODate,
 } from "./types"
 import { STAPLE_ITEMS } from "./staples"
 
@@ -64,6 +66,7 @@ function mapGrocery(row: any): GroceryItem {
   return {
     id: row.id,
     user_id: row.user_id,
+    week_start: row.week_start,
     item_name: row.item_name,
     quantity: Number(row.quantity),
     unit: row.unit,
@@ -203,12 +206,15 @@ export async function deleteInventoryItem(id: string): Promise<void> {
 
 // ── Meal Plan ─────────────────────────────────────────────────────────────
 
-export async function getMealPlan(): Promise<MealPlanSlot[]> {
+export async function getMealPlan(weekStart: ISODate): Promise<MealPlanSlot[]> {
   const userId = await getUserId()
+  const weekEnd = addDays(weekStart, 6)
   const { data, error } = await supabase
     .from("meal_plan")
     .select("*")
     .eq("user_id", userId)
+    .gte("date", weekStart)
+    .lte("date", weekEnd)
   if (error) {
     console.error("getMealPlan:", error.message)
     return []
@@ -217,17 +223,18 @@ export async function getMealPlan(): Promise<MealPlanSlot[]> {
   // Merge persisted slots into the canonical 7x3 grid so the planner always
   // renders every day/meal-type cell regardless of how many rows exist.
   const byKey = new Map(
-    (data ?? []).map((s) => [`${s.day_of_week}-${s.meal_type}`, s]),
+    (data ?? []).map((s) => [`${s.date}-${s.meal_type}`, s]),
   )
   const slots: MealPlanSlot[] = []
-  for (const day of DAYS) {
+  for (let i = 0; i < DAYS.length; i++) {
+    const date = addDays(weekStart, i)
     for (const meal_type of MEAL_TYPES) {
-      const existing = byKey.get(`${day}-${meal_type}`)
+      const existing = byKey.get(`${date}-${meal_type}`)
       slots.push(
         existing ?? {
-          id: `${day}-${meal_type}`,
+          id: `${date}-${meal_type}`,
           user_id: userId,
-          day_of_week: day,
+          date,
           meal_type,
           meal_id: null,
         },
@@ -238,7 +245,7 @@ export async function getMealPlan(): Promise<MealPlanSlot[]> {
 }
 
 export async function updatePlanSlot(
-  day: DayOfWeek,
+  date: ISODate,
   mealType: MealType,
   mealId: string | null,
 ): Promise<void> {
@@ -246,23 +253,26 @@ export async function updatePlanSlot(
   const { error } = await supabase.from("meal_plan").upsert(
     {
       user_id: userId,
-      day_of_week: day,
+      date,
       meal_type: mealType,
       meal_id: mealId,
     },
-    { onConflict: "user_id,day_of_week,meal_type" },
+    { onConflict: "user_id,date,meal_type" },
   )
   if (error) throw error
 }
 
 // ── Grocery List ──────────────────────────────────────────────────────────
 
-export async function getGroceryList(): Promise<GroceryItem[]> {
+export async function getGroceryList(
+  weekStart: ISODate,
+): Promise<GroceryItem[]> {
   const userId = await getUserId()
   const { data, error } = await supabase
     .from("grocery_list")
     .select("*")
     .eq("user_id", userId)
+    .eq("week_start", weekStart)
     .order("created_at", { ascending: true })
   if (error) {
     console.error("getGroceryList:", error.message)
@@ -271,10 +281,12 @@ export async function getGroceryList(): Promise<GroceryItem[]> {
   return (data ?? []).map(mapGrocery)
 }
 
-export async function generateGroceryList(): Promise<GroceryItem[]> {
+export async function generateGroceryList(
+  weekStart: ISODate,
+): Promise<GroceryItem[]> {
   const userId = await getUserId()
   const [plan, meals, inventory] = await Promise.all([
-    getMealPlan(),
+    getMealPlan(weekStart),
     getMeals(),
     getInventory(),
   ])
@@ -309,18 +321,21 @@ export async function generateGroceryList(): Promise<GroceryItem[]> {
     is_bought: inStockNames.has(key.split("|")[0]),
   }))
 
-  // Replace the whole list: delete existing rows, then bulk insert.
+  // Replace the whole list for this week: delete existing rows, then bulk insert.
   const { error: delError } = await supabase
     .from("grocery_list")
     .delete()
     .eq("user_id", userId)
+    .eq("week_start", weekStart)
   if (delError) throw delError
 
   if (!items.length) return []
 
   const { data, error } = await supabase
     .from("grocery_list")
-    .insert(items.map((i) => ({ user_id: userId, ...i })))
+    .insert(
+      items.map((i) => ({ user_id: userId, week_start: weekStart, ...i })),
+    )
     .select()
   if (error) throw error
   return (data ?? []).map(mapGrocery)
@@ -337,12 +352,13 @@ export async function toggleGroceryItem(
   if (error) throw error
 }
 
-export async function clearGroceryList(): Promise<void> {
+export async function clearGroceryList(weekStart: ISODate): Promise<void> {
   const userId = await getUserId()
   const { error } = await supabase
     .from("grocery_list")
     .delete()
     .eq("user_id", userId)
+    .eq("week_start", weekStart)
   if (error) throw error
 }
 
@@ -416,24 +432,27 @@ export async function saveUserProfile(
 
 // ── Dashboard Summary ────────────────────────────────────────────────────
 
-export async function getDashboardSummary(): Promise<DashboardSummary> {
+export async function getDashboardSummary(
+  weekStart: ISODate = startOfWeek(),
+): Promise<DashboardSummary> {
   const [meals, inventory, plan, grocery, profile] = await Promise.all([
     getMeals(),
     getInventory(),
-    getMealPlan(),
-    getGroceryList(),
+    getMealPlan(weekStart),
+    getGroceryList(weekStart),
     getUserProfile(),
   ])
 
   const mealById = new Map(meals.map((m) => [m.id, m]))
   const plannedMeals = plan
     .filter((slot) => slot.meal_id && mealById.has(slot.meal_id))
-    .map((slot) => mealById.get(slot.meal_id)!)
+    .map((slot) => mealById.get(slot.meal_id!)!)
 
-  const week: DayCalories[] = DAYS.map((day) => {
+  const week: DayCalories[] = DAYS.map((day, i) => {
+    const date = addDays(weekStart, i)
     const daySlots = plan.filter(
       (slot) =>
-        slot.day_of_week === day && slot.meal_id && mealById.has(slot.meal_id),
+        slot.date === date && slot.meal_id && mealById.has(slot.meal_id),
     )
     return {
       day,

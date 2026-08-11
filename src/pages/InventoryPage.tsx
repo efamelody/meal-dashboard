@@ -10,6 +10,8 @@ import {
 import type { InventoryItem, StockStatus } from "../lib/types"
 import ItemAutocomplete from "../components/ItemAutocomplete"
 import { STAPLE_ITEMS } from "../lib/staples"
+import { useAuth } from "../context/AuthContext"
+import { demoInventory, demoSuggestions } from "../lib/demo"
 
 const STATUS_ORDER: StockStatus[] = ["in_stock", "low", "out"]
 const STATUS_LABELS: Record<StockStatus, string> = {
@@ -24,24 +26,36 @@ const STATUS_BADGE: Record<StockStatus, string> = {
 }
 
 export default function InventoryPage() {
+  const { session, openAuth } = useAuth()
+  const userId = session?.user?.id ?? null
+
   const [items, setItems] = useState<InventoryItem[]>([])
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [itemName, setItemName] = useState("")
   const [editId, setEditId] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!userId) {
+      setItems(demoInventory)
+      setSuggestions(demoSuggestions)
+      return
+    }
     Promise.all([getInventory(), getIngredientSuggestions()]).then(
       ([inventory, sugg]) => {
         setItems(inventory)
         setSuggestions(sugg)
       },
     )
-  }, [])
+  }, [userId])
 
   const inStock = items.filter((i) => i.stock_status === "in_stock").length
   const lowCount = items.filter((i) => i.stock_status === "low").length
 
   async function addOrUpdate(name: string, status: StockStatus) {
+    if (!userId) {
+      openAuth()
+      return
+    }
     const existing = items.find(
       (i) => i.item_name.toLowerCase() === name.toLowerCase(),
     )
@@ -77,6 +91,10 @@ export default function InventoryPage() {
   }
 
   async function cycleStatus(item: InventoryItem) {
+    if (!userId) {
+      openAuth()
+      return
+    }
     const next =
       STATUS_ORDER[
         (STATUS_ORDER.indexOf(item.stock_status) + 1) % STATUS_ORDER.length
@@ -88,6 +106,10 @@ export default function InventoryPage() {
   }
 
   async function handleDelete(id: string) {
+    if (!userId) {
+      openAuth()
+      return
+    }
     await deleteInventoryItem(id)
     setItems(items.filter((i) => i.id !== id))
   }
@@ -103,6 +125,10 @@ export default function InventoryPage() {
   }
 
   async function saveEdit(id: string) {
+    if (!userId) {
+      openAuth()
+      return
+    }
     const name = itemName.trim()
     if (!name) {
       setEditId(null)
@@ -115,7 +141,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex-1 p-8 min-h-screen">
+    <div className="flex-1 p-4 sm:p-8 min-h-screen">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -194,8 +220,8 @@ export default function InventoryPage() {
               <div key={item.id}>
                 {i > 0 && <div className="h-px bg-[var(--border)] mx-5" />}
                 {editId === item.id ? (
-                  <div className="flex gap-2 items-center px-5 py-3">
-                    <div className="flex-1">
+                  <div className="flex flex-wrap gap-2 items-center px-5 py-3">
+                    <div className="flex-1 min-w-[200px]">
                       <ItemAutocomplete
                         value={itemName}
                         onChange={setItemName}
@@ -203,24 +229,26 @@ export default function InventoryPage() {
                         placeholder="Item name"
                       />
                     </div>
-                    <button
-                      onClick={() => cycleStatus(item)}
-                      className={`px-2.5 py-1.5 rounded-full text-xs font-medium ${STATUS_BADGE[item.stock_status]}`}
-                    >
-                      {STATUS_LABELS[item.stock_status]}
-                    </button>
-                    <button
-                      onClick={() => saveEdit(item.id)}
-                      className="p-1.5 rounded-lg bg-[var(--accent)] text-white"
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      onClick={() => setEditId(null)}
-                      className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)]"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div className="flex gap-2 items-center ml-auto">
+                      <button
+                        onClick={() => cycleStatus(item)}
+                        className={`px-2.5 py-1.5 rounded-full text-xs font-medium ${STATUS_BADGE[item.stock_status]}`}
+                      >
+                        {STATUS_LABELS[item.stock_status]}
+                      </button>
+                      <button
+                        onClick={() => saveEdit(item.id)}
+                        className="p-1.5 rounded-lg bg-[var(--accent)] text-white"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        onClick={() => setEditId(null)}
+                        className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)]"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div

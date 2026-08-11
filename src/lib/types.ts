@@ -1,5 +1,6 @@
 export type MealType = "Breakfast" | "Lunch" | "Dinner" | "Snack"
 export type DayOfWeek = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun"
+export type ISODate = string
 export type StockStatus = "in_stock" | "low" | "out"
 export type Sex = "male" | "female"
 export type Goal = "lose" | "maintain" | "build"
@@ -36,7 +37,7 @@ export interface InventoryItem {
 export interface MealPlanSlot {
   id: string
   user_id: string
-  day_of_week: DayOfWeek
+  date: ISODate
   meal_type: MealType
   meal_id: string | null
 }
@@ -44,6 +45,7 @@ export interface MealPlanSlot {
 export interface GroceryItem {
   id: string
   user_id: string
+  week_start: ISODate
   item_name: string
   quantity: number
   unit: string

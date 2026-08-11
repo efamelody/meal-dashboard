@@ -3,7 +3,8 @@
 // @google/generative-ai once an API key is available.
 
 import { getMeals, getInventory } from "./db"
-import type { DayOfWeek, Meal, MealType } from "./types"
+import { DAYS, dateInWeek, startOfWeek } from "./dates"
+import type { Meal, MealType, ISODate } from "./types"
 
 export interface AIPlanRequest {
   target_calories: number
@@ -13,7 +14,7 @@ export interface AIPlanRequest {
 }
 
 export type AIPlanSlot = {
-  day: DayOfWeek
+  date: ISODate
   meal_type: MealType
   meal_id: string
 }
@@ -25,6 +26,7 @@ export interface AIPlanResponse {
 
 export async function generateAIMealPlan(
   req: AIPlanRequest,
+  weekStart: ISODate = startOfWeek(),
 ): Promise<AIPlanResponse> {
   const [meals, inventory] = await Promise.all([getMeals(), getInventory()])
 
@@ -32,26 +34,26 @@ export async function generateAIMealPlan(
   // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   // const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
   //
-  // const prompt = buildPrompt(req, meals, inventory);
+  // const prompt = buildPrompt(req, meals, inventory, weekStart);
   // const result = await model.generateContent(prompt);
   // const text = result.response.text();
   // return JSON.parse(text) as AIPlanResponse;
   // ──────────────────────────────────────────────────────────────────────
 
   // Stub: naive greedy allocation for demonstration
-  const DAYS: DayOfWeek[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
   const TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
 
   const pick = (arr: Meal[]) => arr[Math.floor(Math.random() * arr.length)]
 
   const plan: AIPlanSlot[] = []
-  for (const day of DAYS) {
+  DAYS.forEach((day, i) => {
+    const date = dateInWeek(weekStart, i)
     for (const meal_type of TYPES) {
       if (meals.length) {
-        plan.push({ day, meal_type, meal_id: pick(meals).id })
+        plan.push({ date, meal_type, meal_id: pick(meals).id })
       }
     }
-  }
+  })
 
   return {
     plan,
@@ -63,9 +65,10 @@ function buildPrompt(
   req: AIPlanRequest,
   meals: Meal[],
   inventory: ReturnType<typeof Array.prototype.map>,
+  weekStart: ISODate,
 ): string {
   return `
-You are a nutrition assistant. Create a 7-day meal plan using ONLY the meals provided.
+You are a nutrition assistant. Create a 7-day meal plan using ONLY the meals provided, for the week starting ${weekStart}.
 
 Target macros per day:
 - Calories: ${req.target_calories} kcal
@@ -81,7 +84,7 @@ ${JSON.stringify(inventory, null, 2)}
 
 Return a JSON object with this shape:
 {
-  "plan": [{ "day": "Mon", "meal_type": "Breakfast", "meal_id": "<uuid>" }],
+  "plan": [{ "date": "2026-08-10", "meal_type": "Breakfast", "meal_id": "<uuid>" }],
   "reasoning": "<brief explanation>"
 }
 `.trim()

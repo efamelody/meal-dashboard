@@ -3,10 +3,12 @@
 -- Re-running is safe: meals with the same name for the same user are skipped.
 
 -- ── 1. Ensure the dev user exists ─────────────────────────────────────────
--- Matches the auto-provisioned user in src/lib/supabase.ts (email
--- me@meal-dashboard.local), so the seeded rows belong to the same user the
--- app resolves. Change the email/password here if you overrode
--- VITE_DEV_USER_EMAIL / VITE_DEV_USER_PASSWORD in .env.
+-- NOTE: if you renamed the dev user's email in the Supabase dashboard (as part
+-- of enabling login), section 1 will create a FRESH empty account under the
+-- OLD email and seed meals to it. Either update the email/password below to
+-- your current account, or delete section 1 and let the seeded meals below be
+-- inserted under your existing account via the SQL Editor (change the email in
+-- the `dev` CTE of section 2 to match your account email).
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at,

@@ -7,8 +7,11 @@ import {
   ShoppingCart,
   HeartPulse,
   Sparkles,
-  X,
+  LogOut,
+  LogIn,
 } from "lucide-react"
+import { supabase } from "../lib/supabase"
+import { useAuth } from "../context/AuthContext"
 
 const links = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -19,18 +22,10 @@ const links = [
   { to: "/profile", label: "Fitness Profile", icon: HeartPulse },
 ]
 
-interface SidebarProps {
-  open: boolean
-  onClose: () => void
-}
-
-export default function Sidebar({ open, onClose }: SidebarProps) {
+export default function Sidebar() {
+  const { session, openAuth } = useAuth()
   return (
-    <aside
-      className={`fixed lg:static inset-y-0 left-0 z-40 w-60 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--card)] h-screen sticky top-0 transition-transform duration-200 lg:translate-x-0 ${
-        open ? "translate-x-0" : "-translate-x-full"
-      }`}
-    >
+    <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-[var(--border)] bg-[var(--card)] h-screen sticky top-0">
       <div className="px-6 pt-8 pb-6 border-b border-[var(--border)]">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-[var(--primary)] flex items-center justify-center">
@@ -47,13 +42,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               Planner
             </p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close menu"
-            className="lg:hidden p-1.5 -mr-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-          >
-            <X size={18} />
-          </button>
         </div>
       </div>
 
@@ -63,7 +51,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             key={to}
             to={to}
             end={to === "/"}
-            onClick={onClose}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive
@@ -78,18 +65,44 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="px-4 pb-6">
-        <div className="rounded-xl bg-[var(--secondary)] p-4 text-[var(--primary)]">
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles size={14} />
-            <span className="text-xs font-semibold">AI Planner</span>
+        <div className="px-4 pb-6 space-y-2">
+          <div className="rounded-xl bg-[var(--secondary)] p-4 text-[var(--primary)]">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles size={14} />
+              <span className="text-xs font-semibold">AI Planner</span>
+            </div>
+            <p className="text-[11px] text-[var(--accent-foreground)] leading-relaxed opacity-75">
+              Gemini integration ready. Connect your API key to auto-generate
+              weekly plans.
+            </p>
           </div>
-          <p className="text-[11px] text-[var(--accent-foreground)] leading-relaxed opacity-75">
-            Gemini integration ready. Connect your API key to auto-generate
-            weekly plans.
-          </p>
+          {session ? (
+            <>
+              <div className="px-3 pt-1">
+                <p className="text-[11px] text-[var(--muted-foreground)] truncate">
+                  {session.user.email ?? "Signed in"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => supabase.auth.signOut()}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <LogOut size={16} />
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={openAuth}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              <LogIn size={16} />
+              Sign in / Create account
+            </button>
+          )}
         </div>
-      </div>
     </aside>
   )
 }

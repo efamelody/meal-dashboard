@@ -1,30 +1,34 @@
-import { useState } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { Menu, Salad } from "lucide-react"
+import { Salad, LogOut } from "lucide-react"
+import { AuthProvider, useAuth } from "./context/AuthContext"
 import Sidebar from "./components/Sidebar"
+import BottomNav from "./components/BottomNav"
 import AiFooter from "./components/AiFooter"
+import LoginPage from "./pages/LoginPage"
 import DashboardPage from "./pages/DashboardPage"
 import MealsPage from "./pages/MealsPage"
 import InventoryPage from "./pages/InventoryPage"
 import PlannerPage from "./pages/PlannerPage"
 import GroceryPage from "./pages/GroceryPage"
 import ProfilePage from "./pages/ProfilePage"
+import { supabase } from "./lib/supabase"
 
-export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+function AppShell() {
+  const { session, loading, openAuth } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-sm text-[var(--muted-foreground)]">
+        Loading…
+      </div>
+    )
+  }
 
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-[var(--background)]">
-        {/* Mobile top bar */}
-        <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-[var(--card)] border-b border-[var(--border)]">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
-            className="p-2 -ml-2 rounded-lg text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-          >
-            <Menu size={20} />
-          </button>
+        {/* Mobile slim header */}
+        <header className="lg:hidden sticky top-0 z-30 flex items-center px-4 py-3 bg-[var(--card)] border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-[var(--primary)] flex items-center justify-center">
               <Salad size={14} className="text-[var(--primary-foreground)]" />
@@ -36,11 +40,41 @@ export default function App() {
               MealKit
             </span>
           </div>
+          {session ? (
+            <button
+              type="button"
+              onClick={() => supabase.auth.signOut()}
+              aria-label="Sign out"
+              className="ml-auto p-2 -mr-2 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+            >
+              <LogOut size={18} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={openAuth}
+              className="ml-auto text-sm font-medium text-[var(--primary)] px-2.5 py-1.5 rounded-lg hover:bg-[var(--secondary)] transition-colors"
+            >
+              Sign in
+            </button>
+          )}
         </header>
 
         <div className="flex">
-          <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-          <main className="flex-1 overflow-y-auto min-w-0">
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto min-w-0 pb-24 lg:pb-0">
+            {!session && (
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-8 py-2.5 bg-[var(--secondary)] text-[var(--primary)] text-xs">
+                <span>Preview — you&apos;re viewing sample data.</span>
+                <button
+                  type="button"
+                  onClick={openAuth}
+                  className="font-medium hover:underline whitespace-nowrap"
+                >
+                  Sign in / Create account
+                </button>
+              </div>
+            )}
             <Routes>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/meals" element={<MealsPage />} />
@@ -48,21 +82,23 @@ export default function App() {
               <Route path="/planner" element={<PlannerPage />} />
               <Route path="/grocery" element={<GroceryPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/login" element={<LoginPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             <AiFooter />
           </main>
         </div>
 
-        {/* Backdrop for mobile drawer */}
-        {sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden fixed inset-0 z-20 bg-black/40"
-            aria-hidden="true"
-          />
-        )}
+        <BottomNav />
       </div>
     </BrowserRouter>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   )
 }

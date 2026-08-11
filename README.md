@@ -28,11 +28,16 @@ app that pairs a full meal-planning dashboard with Gemini-powered AI assistance.
 
 ### 📅 Weekly Planner
 - 7-day × meal-type grid (Breakfast / Lunch / Dinner / Snack).
+- **Week navigation** — prev/next arrows and a "Today" button let you plan any
+  week; each meal slot is stored on a concrete date.
 - Live daily and weekly calorie totals per column.
-- Pick any saved meal for each slot.
+- Pick any saved meal for each slot; log what you ate (with AI photo/description
+  estimates) per day.
 
 ### 🛒 Smart Grocery List
-- One click generates the grocery list from your planned meals.
+- **Per-week lists** — each week generates its own grocery list; switching weeks
+  never clobbers another week's list.
+- One click generates the grocery list from the planned meals of the viewed week.
 - **Smart deduction** — items already marked *in stock* in your inventory are
   pre-checked as bought.
 
@@ -112,6 +117,12 @@ SQL Editor (Dashboard → SQL Editor → New query → Run).
 > **Note:** The `create type ... as enum` lines fail on a second run. If you
 > only need to add a new table later, run just that section.
 
+**Upgrading an existing database** to the week-aware schema: run
+[`supabase/migrations/001_week_aware_meal_plan.sql`](supabase/migrations/001_week_aware_meal_plan.sql)
+once. It converts `meal_plan` from a single static week to date-keyed slots
+(backfilling existing rows into the current week) and scopes `grocery_list`
+rows to a week.
+
 ### 4. Start developing
 
 ```bash
@@ -175,9 +186,13 @@ supabase/
 
 ## 🗺️ Roadmap
 
-- **Phase 1 (done):** Meal library, inventory, weekly planner, smart grocery
-  list, fitness profile with AI calorie recommendations.
+- **Phase 1 (done):** Meal library, inventory, weekly planner with week
+  navigation, per-week smart grocery lists, fitness profile with AI calorie
+  recommendations.
 - **Phase 2 (planned):** Exercise tracking — strength & cardio sessions with
   daily calorie-burn suggestions.
 - **Phase 3 (planned):** Connect to fitness apps such as Apple Health to sync
   activity automatically.
+- **Phase 4 (planned):** Google Calendar sync — push/pull meal plan slots as
+  calendar events (each slot is already date-based; the `google_calendar_event_id`
+  column is reserved for this).

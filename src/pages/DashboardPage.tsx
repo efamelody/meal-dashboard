@@ -11,8 +11,12 @@ import {
 } from "lucide-react"
 import { getDashboardSummary } from "../lib/db"
 import { GOAL_LABELS } from "../lib/nutrition"
-import type { DashboardSummary } from "../lib/types"
+import { startOfWeek } from "../lib/dates"
+import type { DashboardSummary, ISODate } from "../lib/types"
 import WeeklyCaloriesChart from "../components/WeeklyCaloriesChart"
+import WeekNavigator from "../components/WeekNavigator"
+import { useAuth } from "../context/AuthContext"
+import { buildDemoSummary } from "../lib/demo"
 
 function ProgressBar({
   value,
@@ -49,18 +53,32 @@ function verdictLine(summary: DashboardSummary): string {
 }
 
 export default function DashboardPage() {
+  const { session } = useAuth()
+  const userId = session?.user?.id ?? null
+
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [weekStart, setWeekStart] = useState<ISODate>(startOfWeek)
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
     let cancelled = false
-    getDashboardSummary().then((data) => {
-      if (!cancelled) setSummary(data)
+    setLoading(true)
+    if (!userId) {
+      setSummary(buildDemoSummary())
+      setLoading(false)
+      return
+    }
+    getDashboardSummary(weekStart).then((data) => {
+      if (!cancelled) {
+        setSummary(data)
+        setLoading(false)
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [weekStart, userId])
 
   if (!summary) {
     return (
@@ -159,12 +177,29 @@ export default function DashboardPage() {
     <div className="flex-1 p-4 sm:p-8 min-h-screen">
       <div className="max-w-3xl mx-auto">
         <div className="mb-10">
-          <h2 className="text-4xl text-[var(--foreground)] mb-2">
-            Your progress
-          </h2>
-          <p className="text-[var(--muted-foreground)]">
-            How this week's plan lines up with your goals.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-4xl text-[var(--foreground)] mb-2">
+                Your progress
+              </h2>
+              <p className="text-[var(--muted-foreground)]">
+                How this week's plan lines up with your goals.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {loading && (
+                <span className="text-xs text-[var(--muted-foreground)]">
+                  Loading…
+                </span>
+              )}
+              <WeekNavigator
+                weekStart={weekStart}
+                onChange={setWeekStart}
+                onToday={() => setWeekStart(startOfWeek())}
+                compact
+              />
+            </div>
+          </div>
         </div>
 
         {profile ? (
@@ -259,7 +294,7 @@ export default function DashboardPage() {
                   : "Plan your week and set up your profile to see calories vs. target."}
               </p>
               <button
-                onClick={() => navigate("/planner")}
+                onClick={() => navigate(`/planner?week=${weekStart}`)}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 Fill the weekly planner
@@ -280,7 +315,7 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => navigate("/planner")}
+                  onClick={() => navigate(`/planner?week=${weekStart}`)}
                   className="shrink-0 text-sm font-medium text-[var(--primary)] hover:underline"
                 >
                   Adjust plan
@@ -320,7 +355,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl text-[var(--foreground)]">Grocery list</h3>
             <button
-              onClick={() => navigate("/grocery")}
+              onClick={() => navigate(`/grocery?week=${weekStart}`)}
               className="text-sm font-medium text-[var(--primary)] hover:underline"
             >
               Open
@@ -332,7 +367,7 @@ export default function DashboardPage() {
                 No grocery list yet — fill the planner and generate one.
               </p>
               <button
-                onClick={() => navigate("/planner")}
+                onClick={() => navigate(`/planner?week=${weekStart}`)}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 Plan your week

@@ -5,7 +5,6 @@
 
 -- ── Enums ──────────────────────────────────────────────────────────────
 create type meal_type as enum ('Breakfast', 'Lunch', 'Dinner', 'Snack');
-create type day_of_week as enum ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun');
 
 -- ── Meals ──────────────────────────────────────────────────────────────
 create table meals (
@@ -39,21 +38,23 @@ create table inventory (
   created_at   timestamptz not null default now()
 );
 
--- ── Meal plan (one row per day x meal-type slot) ──────────────────────
+-- ── Meal plan (one row per date x meal-type slot) ─────────────────────
 create table meal_plan (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references auth.users (id) on delete cascade,
-  day_of_week day_of_week not null,
-  meal_type   meal_type   not null,
-  meal_id     uuid references meals (id) on delete set null,
-  created_at  timestamptz not null default now(),
-  unique (user_id, day_of_week, meal_type)
+  id                      uuid primary key default gen_random_uuid(),
+  user_id                 uuid not null references auth.users (id) on delete cascade,
+  date                    date not null,
+  meal_type               meal_type   not null,
+  meal_id                 uuid references meals (id) on delete set null,
+  google_calendar_event_id text, -- future Google Calendar sync hook
+  created_at              timestamptz not null default now(),
+  unique (user_id, date, meal_type)
 );
 
--- ── Grocery list (regenerated wholesale from the planner) ─────────────
+-- ── Grocery list (one list per week, regenerated wholesale) ───────────
 create table grocery_list (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null references auth.users (id) on delete cascade,
+  week_start date not null default (date_trunc('week', current_date)::date),
   item_name  text not null,
   quantity   numeric(8,2) not null default 0 check (quantity >= 0),
   unit       text not null default 'g',
@@ -86,7 +87,9 @@ create index meals_user_id_idx            on meals (user_id);
 create index meal_ingredients_meal_id_idx on meal_ingredients (meal_id);
 create index inventory_user_id_idx        on inventory (user_id);
 create index meal_plan_user_id_idx        on meal_plan (user_id);
+create index meal_plan_user_date_idx      on meal_plan (user_id, date);
 create index grocery_list_user_id_idx     on grocery_list (user_id);
+create index grocery_list_user_week_idx   on grocery_list (user_id, week_start);
 
 -- ── Row Level Security (per-user) ─────────────────────────────────────
 alter table meals           enable row level security;
@@ -117,3 +120,12 @@ create policy "grocery_all_own" on grocery_list
 
 create policy "user_profiles_all_own" on user_profiles
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ── Grants (the browser app uses the anon key now, not the service-role key) ──
+-- The anon key respects Postgres grants + RLS; RLS still limits every role to
+-- its own rows (auth.uid() = user_id), so `authenticated` can touch all tables.
+-- `anon` gets nothing: login goes through Supabase Auth, never these tables.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to authenticated;

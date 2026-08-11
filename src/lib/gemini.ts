@@ -56,7 +56,10 @@ class GeminiError extends Error {
 
 interface GeminiPart {
   text?: string
-  inline_data?: { mime_type: string data: string }
+  inline_data?: {
+    mime_type: string
+    data: string
+  }
 }
 
 async function requestParts<T>(model: string, parts: GeminiPart[]): Promise<T> {

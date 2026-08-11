@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   ShoppingCart,
   Trash2,
@@ -13,22 +13,53 @@ import {
   clearGroceryList,
   generateGroceryList,
 } from "../lib/db"
-import type { GroceryItem } from "../lib/types"
+import { isISODate, startOfWeek } from "../lib/dates"
+import type { GroceryItem, ISODate } from "../lib/types"
+import WeekNavigator from "../components/WeekNavigator"
+import { useAuth } from "../context/AuthContext"
+import { demoGrocery } from "../lib/demo"
 
 export default function GroceryPage() {
+  const { session, openAuth } = useAuth()
+  const userId = session?.user?.id ?? null
+
+  const [searchParams, setSearchParams] = useSearchParams()
   const [items, setItems] = useState<GroceryItem[]>([])
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
+  const weekParam = searchParams.get("week")
+  const weekStart: ISODate = isISODate(weekParam) ? weekParam : startOfWeek()
+
   useEffect(() => {
-    getGroceryList().then(setItems)
-  }, [])
+    let cancelled = false
+    if (!userId) {
+      setItems(demoGrocery)
+      return
+    }
+    getGroceryList(weekStart).then((list) => {
+      if (!cancelled) setItems(list)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [weekStart, userId])
+
+  function changeWeek(next: ISODate) {
+    const sp = new URLSearchParams(searchParams)
+    sp.set("week", next)
+    setSearchParams(sp)
+  }
 
   const bought = items.filter((i) => i.is_bought).length
   const remaining = items.filter((i) => !i.is_bought)
   const boughtItems = items.filter((i) => i.is_bought)
 
   async function handleToggle(id: string, current: boolean) {
+    if (!userId) {
+      openAuth()
+      return
+    }
     await toggleGroceryItem(id, !current)
     setItems(
       items.map((i) => (i.id === id ? { ...i, is_bought: !current } : i)),
@@ -36,18 +67,30 @@ export default function GroceryPage() {
   }
 
   async function handleClear() {
-    await clearGroceryList()
+    if (!userId) {
+      openAuth()
+      return
+    }
+    await clearGroceryList(weekStart)
     setItems([])
   }
 
   async function handleRegenerate() {
+    if (!userId) {
+      openAuth()
+      return
+    }
     setLoading(true)
-    const list = await generateGroceryList()
+    const list = await generateGroceryList(weekStart)
     setItems(list)
     setLoading(false)
   }
 
   async function handleMarkAllBought() {
+    if (!userId) {
+      openAuth()
+      return
+    }
     const updated = items.map((i) => ({ ...i, is_bought: true }))
     for (const item of updated) await toggleGroceryItem(item.id, true)
     setItems(updated)
@@ -60,6 +103,14 @@ export default function GroceryPage() {
           <div className="flex items-center gap-3 mb-8">
             <h2 className="text-3xl text-[var(--foreground)]">Grocery List</h2>
           </div>
+          <div className="mb-6 flex justify-center">
+            <WeekNavigator
+              weekStart={weekStart}
+              onChange={changeWeek}
+              onToday={() => changeWeek(startOfWeek())}
+              compact
+            />
+          </div>
           <div className="text-center py-24 text-[var(--muted-foreground)]">
             <ShoppingCart size={48} className="mx-auto mb-4 opacity-25" />
             <p className="text-base font-medium mb-2">No grocery list yet</p>
@@ -67,7 +118,7 @@ export default function GroceryPage() {
               Generate one from your weekly meal plan.
             </p>
             <button
-              onClick={() => navigate("/planner")}
+              onClick={() => navigate(`/planner?week=${weekStart}`)}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
             >
               <ArrowLeft size={15} />
@@ -83,37 +134,50 @@ export default function GroceryPage() {
     <div className="flex-1 p-8 min-h-screen">
       <div className="max-w-xl mx-auto">
         {/* Header */}
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <h2 className="text-3xl text-[var(--foreground)]">Grocery List</h2>
-            <p className="text-sm text-[var(--muted-foreground)] mt-1">
-              {bought}/{items.length} items checked off
-            </p>
+        <div className="flex flex-col gap-4 mb-8">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-3xl text-[var(--foreground)]">
+                Grocery List
+              </h2>
+              <p className="text-sm text-[var(--muted-foreground)] mt-1">
+                {bought}/{items.length} items checked off
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRegenerate}
+                disabled={loading}
+                title="Regenerate from planner"
+                className="p-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
+              >
+                <RefreshCw
+                  size={15}
+                  className={loading ? "animate-spin" : ""}
+                />
+              </button>
+              <button
+                onClick={handleMarkAllBought}
+                title="Mark all bought"
+                className="p-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--accent)] hover:bg-[var(--secondary)] transition-colors"
+              >
+                <CheckCheck size={15} />
+              </button>
+              <button
+                onClick={handleClear}
+                title="Clear list"
+                className="p-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleRegenerate}
-              disabled={loading}
-              title="Regenerate from planner"
-              className="p-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] transition-colors"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            </button>
-            <button
-              onClick={handleMarkAllBought}
-              title="Mark all bought"
-              className="p-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--accent)] hover:bg-[var(--secondary)] transition-colors"
-            >
-              <CheckCheck size={15} />
-            </button>
-            <button
-              onClick={handleClear}
-              title="Clear list"
-              className="p-2.5 rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
+          <WeekNavigator
+            weekStart={weekStart}
+            onChange={changeWeek}
+            onToday={() => changeWeek(startOfWeek())}
+            compact
+          />
         </div>
 
         {/* Progress */}
