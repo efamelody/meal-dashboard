@@ -114,7 +114,7 @@ async function callGeminiParts<T>(parts: GeminiPart[]): Promise<T> {
     : new Error("All Gemini models failed.")
 }
 
-function callGeminiJSON<T>(prompt: string): Promise<T> {
+export function callGeminiJSON<T>(prompt: string): Promise<T> {
   return callGeminiParts<T>([{ text: prompt }])
 }
 

@@ -1,11 +1,21 @@
-import { useState, useEffect } from "react"
-import { ShoppingCart, Sparkles, CalendarDays, Camera, X } from "lucide-react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useCallback, useEffect, useState } from "react"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import {
-  getMeals,
-  getMealPlan,
-  updatePlanSlot,
+  CalendarDays,
+  Camera,
+  ChartLine,
+  Minus,
+  Plus,
+  ShoppingCart,
+  Sparkles,
+  X,
+} from "lucide-react"
+import {
   generateGroceryList,
+  getDashboardSummary,
+  getMealPlan,
+  getMeals,
+  updatePlanSlot,
 } from "../lib/db"
 import {
   DAYS,
@@ -14,89 +24,82 @@ import {
   isISODate,
   parseISODate,
   startOfWeek,
+  toISODate,
 } from "../lib/dates"
+import { slotKey, useMealLog } from "../lib/mealLog"
 import type {
+  DashboardSummary,
   Meal,
   MealPlanSlot,
-  DayOfWeek,
   MealType,
-  LoggedMeal,
   ISODate,
 } from "../lib/types"
-import MealLoggerModal from "../components/MealLoggerModal"
-import WeekNavigator from "../components/WeekNavigator"
-import PlannerMobileView from "../components/PlannerMobileView"
 import { useAuth } from "../context/AuthContext"
-import { demoMeals, demoPlan } from "../lib/demo"
+import { buildDemoSummary, demoMeals, demoPlan } from "../lib/demo"
+import MealLoggerModal from "../components/MealLoggerModal"
+import PlannerMobileView from "../components/PlannerMobileView"
+import WeekNavigator from "../components/WeekNavigator"
+import WeeklyCaloriesChart from "../components/WeeklyCaloriesChart"
+import { PageContainer, PageHeader } from "../components/PageHeader"
+import { useToast } from "../components/Toast"
+import {
+  Button,
+  Card,
+  CardHead,
+  CardSkeleton,
+  EmptyState,
+  ErrorState,
+  InlineNote,
+  ProgressBar,
+} from "../components/ui"
 
-const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
+const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner", "Snack"]
+const FILL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
+const MAX_SERVINGS = 12
 
 const TYPE_ACCENT: Record<MealType, string> = {
   Breakfast: "border-l-amber-400",
-  Lunch: "border-l-sky-400",
-  Dinner: "border-l-violet-400",
+  Lunch: "border-l-emerald-400",
+  Dinner: "border-l-sky-400",
   Snack: "border-l-rose-400",
 }
 
-const LOG_KEY = "meal-kit-planner-log"
-const DAY_OFFSET: Record<DayOfWeek, number> = {
-  Mon: 0,
-  Tue: 1,
-  Wed: 2,
-  Thu: 3,
-  Fri: 4,
-  Sat: 5,
-  Sun: 6,
-}
-
-// Logs are keyed `${date}-${meal_type}`. One-time migration re-bases logs
-// stored under the old `${day}-${meal_type}` keys onto the current week.
-function loadLog(): Record<string, LoggedMeal> {
-  try {
-    const raw = window.localStorage.getItem(LOG_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as Record<string, LoggedMeal>
-    let migrated = false
-    const out: Record<string, LoggedMeal> = {}
-    const weekStart = startOfWeek()
-    for (const [key, value] of Object.entries(parsed)) {
-      const match = key.match(/^(\w{3})-(\w+)$/)
-      if (match) {
-        const day = match[1] as DayOfWeek
-        if (day in DAY_OFFSET) {
-          out[`${dateInWeek(weekStart, DAY_OFFSET[day])}-${match[2]}`] = value
-          migrated = true
-        } else {
-          out[key] = value
-        }
-      } else {
-        out[key] = value
-      }
-    }
-    if (migrated) window.localStorage.setItem(LOG_KEY, JSON.stringify(out))
-    return out
-  } catch {
-    return {}
-  }
+function verdictLine(summary: DashboardSummary): string {
+  const { weekAvgKcal, targetKcal, plannedSlots } = summary
+  if (targetKcal == null)
+    return "Set a calorie target in your profile to compare this plan with your goal."
+  if (plannedSlots === 0)
+    return "Nothing planned yet — fill the week to see how it lines up."
+  const diff = weekAvgKcal - targetKcal
+  if (diff > 0)
+    return `Averaging ${weekAvgKcal} kcal/day — ${diff} over your ${targetKcal} kcal target.`
+  if (diff < 0)
+    return `Averaging ${weekAvgKcal} kcal/day — ${-diff} under your ${targetKcal} kcal target.`
+  return `Averaging ${weekAvgKcal} kcal/day — right on your ${targetKcal} kcal target.`
 }
 
 export default function PlannerPage() {
   const { session, openAuth } = useAuth()
   const userId = session?.user?.id ?? null
-
+  const { toast } = useToast()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+
   const [meals, setMeals] = useState<Meal[]>([])
   const [plan, setPlan] = useState<MealPlanSlot[]>([])
-  const [logged, setLogged] = useState<Record<string, LoggedMeal>>(loadLog)
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loggerSlot, setLoggerSlot] = useState<{
     date: ISODate
     type: MealType
   } | null>(null)
   const [generating, setGenerating] = useState(false)
-  const navigate = useNavigate()
+  const [autoFilling, setAutoFilling] = useState(false)
+  const { log, logMeal, removeLog } = useMealLog()
 
   const weekParam = searchParams.get("week")
   const weekStart: ISODate = isISODate(weekParam) ? weekParam : startOfWeek()
+  const today = toISODate(new Date())
 
   function changeWeek(next: ISODate) {
     const sp = new URLSearchParams(searchParams)
@@ -109,51 +112,151 @@ export default function PlannerPage() {
       setMeals(demoMeals)
       return
     }
-    getMeals().then(setMeals)
-  }, [userId])
-
-  useEffect(() => {
     let cancelled = false
-    if (!userId) {
-      setPlan(demoPlan)
-      return
-    }
-    getMealPlan(weekStart).then((p) => {
-      if (!cancelled) setPlan(p)
-    })
+    getMeals()
+      .then((m) => {
+        if (!cancelled) setMeals(m)
+      })
+      .catch((err) => {
+        console.error("getMeals:", err)
+        toast("Could not load your meals", "error")
+      })
     return () => {
       cancelled = true
     }
-  }, [weekStart, userId])
+  }, [userId, toast])
+
+  const loadWeek = useCallback(
+    async (showSkeleton: boolean) => {
+      if (showSkeleton) {
+        setSummary(null)
+        setError(null)
+      }
+      if (!userId) {
+        setPlan(demoPlan)
+        setSummary(buildDemoSummary())
+        return
+      }
+      try {
+        const [p, s] = await Promise.all([
+          getMealPlan(weekStart),
+          getDashboardSummary(weekStart),
+        ])
+        setPlan(p)
+        setSummary(s)
+        setError(null)
+      } catch (err) {
+        console.error("loadWeek:", err)
+        setError("Could not load your plan for this week.")
+      }
+    },
+    [userId, weekStart],
+  )
 
   useEffect(() => {
-    window.localStorage.setItem(LOG_KEY, JSON.stringify(logged))
-  }, [logged])
+    loadWeek(true)
+  }, [loadWeek])
+
+  async function refreshSummary() {
+    if (!userId) {
+      setSummary(buildDemoSummary())
+      return
+    }
+    try {
+      setSummary(await getDashboardSummary(weekStart))
+    } catch (err) {
+      console.error("refreshSummary:", err)
+    }
+  }
 
   function getSlot(date: ISODate, type: MealType): MealPlanSlot | undefined {
     return plan.find((s) => s.date === date && s.meal_type === type)
   }
 
-  const slotKey = (date: ISODate, type: MealType) => `${date}-${type}`
-
-  function removeLog(date: ISODate, type: MealType) {
-    const next = { ...logged }
-    delete next[slotKey(date, type)]
-    setLogged(next)
-  }
-
-  async function handleChange(date: ISODate, type: MealType, mealId: string) {
+  async function applySlot(
+    date: ISODate,
+    type: MealType,
+    mealId: string | null,
+    servings: number,
+  ): Promise<void> {
     if (!userId) {
       openAuth()
       return
     }
+    try {
+      await updatePlanSlot(date, type, mealId, servings)
+      setPlan((prev) =>
+        prev.map((s) =>
+          s.date === date && s.meal_type === type
+            ? { ...s, meal_id: mealId, servings: mealId ? servings : 1 }
+            : s,
+        ),
+      )
+      void refreshSummary()
+    } catch (err) {
+      console.error("updatePlanSlot:", err)
+      toast("Could not save that slot", "error")
+    }
+  }
+
+  function handleChange(date: ISODate, type: MealType, mealId: string) {
     const id = mealId || null
-    await updatePlanSlot(date, type, id)
-    setPlan(
-      plan.map((s) =>
-        s.date === date && s.meal_type === type ? { ...s, meal_id: id } : s,
-      ),
-    )
+    const current = getSlot(date, type)
+    const servings = id ? current?.servings || 1 : 1
+    void applySlot(date, type, id, servings)
+  }
+
+  function handleServings(date: ISODate, type: MealType, next: number) {
+    const current = getSlot(date, type)
+    if (!current?.meal_id) return
+    const servings = Math.min(MAX_SERVINGS, Math.max(1, next))
+    if (servings === (current.servings || 1)) return
+    void applySlot(date, type, current.meal_id, servings)
+  }
+
+  async function handleAutoFill() {
+    if (!userId) {
+      openAuth()
+      return
+    }
+    if (!meals.length) {
+      toast("Add meals to your library first", "info")
+      return
+    }
+    const empties: Array<{
+      date: ISODate
+      meal_type: MealType
+    }> = []
+    for (let i = 0; i < DAYS.length; i++) {
+      const date = dateInWeek(weekStart, i)
+      for (const type of FILL_TYPES) {
+        if (!getSlot(date, type)?.meal_id)
+          empties.push({ date, meal_type: type })
+      }
+    }
+    if (!empties.length) {
+      toast("Every meal slot is already filled", "info")
+      return
+    }
+    setAutoFilling(true)
+    try {
+      const pick = () => meals[Math.floor(Math.random() * meals.length)].id
+      await Promise.all(
+        empties.map((e) => updatePlanSlot(e.date, e.meal_type, pick(), 1)),
+      )
+      setPlan(await getMealPlan(weekStart))
+      await refreshSummary()
+      toast(
+        `${empties.length} empty slot${
+          empties.length === 1 ? "" : "s"
+        } filled from your saved meals`,
+      )
+    } catch (err) {
+      console.error("autoFill:", err)
+      toast("Could not fill the empty slots", "error")
+    } finally {
+      setAutoFilling(false)
+    }
   }
 
   async function handleGenerateGrocery() {
@@ -162,301 +265,475 @@ export default function PlannerPage() {
       return
     }
     setGenerating(true)
-    await generateGroceryList(weekStart)
-    setGenerating(false)
-    navigate(`/grocery?week=${weekStart}`)
+    try {
+      await generateGroceryList(weekStart)
+      toast("Grocery list updated from this week's plan")
+      navigate(`/kitchen/grocery?week=${weekStart}`)
+    } catch (err) {
+      console.error("generateGroceryList:", err)
+      toast("Could not generate the grocery list", "error")
+    } finally {
+      setGenerating(false)
+    }
   }
+
+  const mealById = new Map(meals.map((m) => [m.id, m]))
+  const plannedCount = plan.filter((s) => s.meal_id).length
+  const totalSlots = DAYS.length * MEAL_TYPES.length
+  const totalPlannedKcal = plan.reduce((sum, slot) => {
+    if (!slot.meal_id) return sum
+    const meal = mealById.get(slot.meal_id)
+    return sum + (meal?.calories ?? 0) * (slot.servings || 1)
+  }, 0)
+  const columnTotals = MEAL_TYPES.map((type) =>
+    plan.reduce((sum, slot) => {
+      if (slot.meal_type !== type || !slot.meal_id) return sum
+      const meal = mealById.get(slot.meal_id)
+      return sum + (meal?.calories ?? 0) * (slot.servings || 1)
+    }, 0),
+  )
 
   const weekDates = new Set(
     Array.from({ length: DAYS.length }, (_, i) => dateInWeek(weekStart, i)),
   )
-  const weekLogEntries = Object.entries(logged).filter(([key]) =>
+  const weekLogEntries = Object.entries(log).filter(([key]) =>
     weekDates.has(key.slice(0, 10)),
   )
-
-  const plannedCount = plan.filter((s) => s.meal_id).length
   const loggedCount = weekLogEntries.length
-  const totalSlots = DAYS.length * MEAL_TYPES.length
-
   const loggedCalories = weekLogEntries.reduce(
-    (sum, [_, m]) => sum + m.calories,
+    (sum, [, entry]) => sum + entry.calories,
     0,
   )
 
-  // Summary: total calories planned for the week (including logged meals)
-  const totalCalories =
-    plan.reduce((sum, slot) => {
-      if (!slot.meal_id) return sum
-      const meal = meals.find((m) => m.id === slot.meal_id)
-      return sum + (meal?.calories || 0)
-    }, 0) + loggedCalories
-
-  const columnTotals = MEAL_TYPES.map(
-    (type) =>
-      plan.reduce((sum, slot) => {
-        if (slot.meal_type !== type || !slot.meal_id) return sum
-        const meal = meals.find((m) => m.id === slot.meal_id)
-        return sum + (meal?.calories || 0)
-      }, 0) +
-      weekLogEntries.reduce((sum, [key, m]) => {
-        return key.endsWith(`-${type}`) ? sum + m.calories : sum
-      }, 0),
-  )
+  const macroRows =
+    summary?.weekMacros && summary.dailyMacroTarget
+      ? [
+          {
+            label: "Protein",
+            value: summary.weekMacros.protein_g,
+            target: summary.dailyMacroTarget.protein_g * 7,
+            tone: "success" as const,
+          },
+          {
+            label: "Carbs",
+            value: summary.weekMacros.carbs_g,
+            target: summary.dailyMacroTarget.carbs_g * 7,
+            tone: "blue" as const,
+          },
+          {
+            label: "Fat",
+            value: summary.weekMacros.fat_g,
+            target: summary.dailyMacroTarget.fat_g * 7,
+            tone: "terracotta" as const,
+          },
+        ]
+      : []
 
   return (
-    <div className="flex-1 p-4 sm:p-8 min-h-screen">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col gap-4 mb-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-3xl text-[var(--foreground)]">
-                Weekly Planner
-              </h2>
-              <p className="text-sm text-[var(--muted-foreground)] mt-1">
-                {plannedCount}/{totalSlots} slots filled ·{" "}
-                {totalCalories.toLocaleString()} kcal planned
-                {loggedCount > 0 ? ` · ${loggedCount} logged` : ""}
-              </p>
-            </div>
-            <button
-              onClick={handleGenerateGrocery}
-              disabled={generating || plannedCount === 0}
-              className="flex w-full lg:w-auto items-center justify-center gap-2 px-5 py-3 bg-[var(--primary)] text-[var(--primary-foreground)] rounded-xl text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+    <PageContainer maxWidth="max-w-6xl">
+      <PageHeader
+        title="Weekly Plan"
+        subtitle={`${plannedCount}/${totalSlots} slots filled · ${totalPlannedKcal.toLocaleString()} kcal planned${
+          loggedCount > 0
+            ? ` · ${loggedCount} logged (${loggedCalories.toLocaleString()} kcal eaten)`
+            : ""
+        }`}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAutoFill}
+              loading={autoFilling}
             >
-              <ShoppingCart size={16} />
-              {generating ? "Generating..." : "Generate Grocery List"}
-            </button>
-          </div>
+              <Sparkles size={14} />
+              Fill empty slots
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleGenerateGrocery}
+              loading={generating}
+              disabled={generating || plannedCount === 0}
+            >
+              <ShoppingCart size={14} />
+              Generate grocery list
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <WeekNavigator
             weekStart={weekStart}
             onChange={changeWeek}
             onToday={() => changeWeek(startOfWeek())}
           />
-        </div>
-
-        {meals.length === 0 && (
-          <div className="mb-5 flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--secondary)] border border-[var(--border)] text-[var(--muted-foreground)]">
-            <CalendarDays size={16} className="opacity-50 shrink-0" />
-            <p className="text-sm">Add some meals in the Meal Library first.</p>
-          </div>
-        )}
-
-        <>
-          {/* Legend */}
-          <div className="hidden lg:flex items-center gap-4 mb-5">
+          <div className="hidden lg:flex items-center gap-4">
             {MEAL_TYPES.map((t) => (
               <div key={t} className="flex items-center gap-1.5">
                 <div
-                  className={`w-2.5 h-2.5 rounded-sm border-l-2 ${TYPE_ACCENT[t]} bg-[var(--muted)]`}
+                  className={`w-2.5 h-2.5 rounded-sm border-l-2 ${TYPE_ACCENT[t]} bg-muted`}
                 />
-                <span className="text-xs text-[var(--muted-foreground)]">
-                  {t}
-                </span>
+                <span className="text-xs text-muted-foreground">{t}</span>
               </div>
             ))}
           </div>
+        </div>
+      </PageHeader>
 
-          {/* Mobile day-by-day view */}
-          <div className="lg:hidden">
-            <PlannerMobileView
-              weekStart={weekStart}
-              meals={meals}
-              plan={plan}
-              logged={logged}
-              onChange={handleChange}
-              onLog={(date, type) => setLoggerSlot({ date, type })}
-              onRemoveLog={removeLog}
-            />
-          </div>
+      {/* Week at a glance */}
+      <Card>
+        <CardHead
+          title="Week at a glance"
+          icon={<ChartLine size={16} className="text-primary" />}
+          action={
+            summary?.targetKcal != null && (
+              <span className="tabular text-sm text-muted-foreground">
+                target {summary.targetKcal} kcal/day
+              </span>
+            )
+          }
+        />
+        {error ? (
+          <ErrorState message={error} onRetry={() => loadWeek(true)} />
+        ) : !summary ? (
+          <CardSkeleton rows={4} />
+        ) : summary.plannedSlots === 0 ? (
+          <EmptyState
+            compact
+            icon={<CalendarDays size={20} />}
+            title="Nothing planned this week"
+            description="Pick meals slot by slot below, or fill the empty breakfast, lunch and dinner slots from your saved meals."
+            action={
+              <Button size="sm" onClick={handleAutoFill} loading={autoFilling}>
+                <Sparkles size={14} />
+                Fill empty slots
+              </Button>
+            }
+          />
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 min-w-0">
+              <WeeklyCaloriesChart
+                week={summary.week}
+                targetKcal={summary.targetKcal}
+              />
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-border pt-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {verdictLine(summary)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {summary.plannedSlots} of {totalSlots} slots planned · bars
+                    above the dashed line are over target
+                  </p>
+                </div>
+              </div>
+            </div>
 
-          {/* 7-day grid (desktop) */}
-          <div className="hidden lg:block bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left">
-                <thead>
-                  <tr>
-                    <th className="px-4 py-3 text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest">
-                      Day
-                    </th>
-                    {MEAL_TYPES.map((t) => (
-                      <th key={t} className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <div
-                            className={`w-2.5 h-2.5 rounded-sm border-l-2 ${TYPE_ACCENT[t]} bg-[var(--muted)]`}
-                          />
-                          <span className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest">
-                            {t}
+            <div className="space-y-5">
+              {macroRows.length > 0 && (
+                <div>
+                  <p className="text-[13px] font-semibold text-foreground mb-2.5">
+                    Weekly macros (planned)
+                  </p>
+                  <div className="space-y-3">
+                    {macroRows.map((m) => (
+                      <div key={m.label}>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-[13px] font-medium text-foreground">
+                            {m.label}
+                          </span>
+                          <span className="tabular text-[11px] text-muted-foreground">
+                            {m.value}/{m.target}g
                           </span>
                         </div>
-                      </th>
+                        <ProgressBar
+                          value={m.value}
+                          max={m.target}
+                          tone={m.tone}
+                          className="mt-1 h-1.5"
+                        />
+                      </div>
                     ))}
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest">
-                      Daily kcal
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DAYS.map((day, i) => {
-                    const date = dateInWeek(weekStart, i)
-                    const daySlots = plan.filter(
-                      (s) => s.date === date && s.meal_id,
-                    )
-                    const dayCals =
-                      daySlots.reduce((sum, slot) => {
-                        const meal = meals.find((m) => m.id === slot.meal_id)
-                        return sum + (meal?.calories || 0)
-                      }, 0) +
-                      MEAL_TYPES.reduce(
-                        (sum, type) =>
-                          sum + (logged[slotKey(date, type)]?.calories || 0),
-                        0,
-                      )
-                    return (
-                      <tr
-                        key={date}
-                        className="border-t border-[var(--border)]"
-                      >
-                        <td className="px-4 py-3 align-top whitespace-nowrap">
-                          <p className="text-xs font-semibold text-[var(--foreground)]">
-                            {dayFullLabel(day)}
-                          </p>
-                          <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                            {parseISODate(date).getDate()}{" "}
-                            {parseISODate(date).toLocaleDateString(undefined, {
-                              month: "short",
-                            })}
-                          </p>
-                        </td>
-                        {MEAL_TYPES.map((type) => {
-                          const slot = getSlot(date, type)
-                          const selectedMeal = slot?.meal_id
-                            ? meals.find((m) => m.id === slot.meal_id)
-                            : null
-                          const log = logged[slotKey(date, type)]
+                  </div>
+                </div>
+              )}
 
-                          return (
-                            <td key={type} className="px-4 py-3 align-top">
-                              <div className="min-h-[30px] mb-1.5">
-                                {selectedMeal ? (
-                                  <>
-                                    <p className="text-xs font-medium text-[var(--foreground)] leading-tight">
-                                      {selectedMeal.name}
-                                    </p>
-                                    <p className="text-[10px] text-[var(--muted-foreground)]">
-                                      {selectedMeal.calories} kcal
-                                    </p>
-                                  </>
-                                ) : (
-                                  <p className="text-[10px] text-[var(--muted-foreground)] italic">
-                                    Empty
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex gap-1 items-center">
-                                <select
-                                  value={slot?.meal_id || ""}
-                                  onChange={(e) =>
-                                    handleChange(date, type, e.target.value)
-                                  }
-                                  className="flex-1 min-w-0 px-1.5 py-1 pr-5 rounded-md border border-[var(--border)] bg-[var(--background)] text-[10px] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
-                                >
-                                  <option value="">— none —</option>
-                                  {meals.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.name}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  onClick={() => setLoggerSlot({ date, type })}
-                                  title="Log what I ate"
-                                  className="p-1 rounded-md text-[var(--muted-foreground)] hover:text-[var(--accent)] hover:bg-[var(--muted)] transition-colors"
-                                >
-                                  <Camera size={12} />
-                                </button>
-                              </div>
-                              {log && (
-                                <div className="mt-1.5 flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-amber-50 border border-amber-200">
-                                  <div className="min-w-0">
-                                    <p className="text-[10px] font-medium text-amber-800 truncate">
-                                      {log.food}
-                                    </p>
-                                    <p className="text-[10px] text-amber-700">
-                                      ~{log.calories} kcal
-                                    </p>
-                                  </div>
-                                  <button
-                                    onClick={() => removeLog(date, type)}
-                                    className="text-amber-700/60 hover:text-amber-800 transition-colors shrink-0"
-                                  >
-                                    <X size={10} />
-                                  </button>
-                                </div>
-                              )}
-                            </td>
-                          )
-                        })}
-                        <td className="px-4 py-3 text-right align-top whitespace-nowrap">
-                          <p className="text-sm font-semibold text-[var(--foreground)]">
-                            {dayCals}
-                          </p>
-                          <p className="text-[9px] text-[var(--muted-foreground)] uppercase tracking-wider">
-                            kcal
-                          </p>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                {plannedCount > 0 && (
-                  <tfoot>
-                    <tr className="border-t-2 border-[var(--border)]">
-                      <td className="px-4 py-3">
-                        <p className="text-xs font-semibold text-[var(--foreground)] uppercase tracking-widest">
-                          Weekly
-                        </p>
-                      </td>
-                      {MEAL_TYPES.map((type, i) => (
-                        <td key={type} className="px-4 py-3">
-                          <p className="text-sm font-semibold text-[var(--foreground)]">
-                            {columnTotals[i].toLocaleString()}
-                          </p>
-                          <p className="text-[9px] text-[var(--muted-foreground)] uppercase tracking-wider">
-                            kcal
-                          </p>
-                        </td>
-                      ))}
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm font-semibold text-[var(--accent)]">
-                          {totalCalories.toLocaleString()}
-                        </p>
-                        <p className="text-[9px] text-[var(--muted-foreground)] uppercase tracking-wider">
-                          kcal
-                        </p>
-                      </td>
-                    </tr>
-                  </tfoot>
+              <div>
+                <p className="text-[13px] font-semibold text-foreground mb-2.5">
+                  Grocery list
+                </p>
+                {summary.groceryTotal === 0 ? (
+                  <p className="text-[13px] text-muted-foreground">
+                    Generate it once the week is filled — bought items are kept
+                    on every regeneration.
+                  </p>
+                ) : (
+                  <>
+                    <ProgressBar
+                      value={summary.groceryBought}
+                      max={summary.groceryTotal}
+                      tone="success"
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="tabular text-[13px] text-foreground">
+                        {summary.groceryBought} of {summary.groceryTotal} bought
+                      </span>
+                      <Link
+                        to={`/kitchen/grocery?week=${weekStart}`}
+                        className="text-[13px] font-medium text-primary hover:underline"
+                      >
+                        Open
+                      </Link>
+                    </div>
+                  </>
                 )}
-              </table>
+              </div>
             </div>
           </div>
+        )}
+      </Card>
 
-          {/* AI hint */}
-          <div className="mt-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--secondary)] border border-[var(--secondary)]">
-            <Sparkles size={16} className="text-[var(--primary)] shrink-0" />
-            <p className="text-xs text-[var(--primary)]">
-              <strong>AI Auto-Plan</strong> — The Gemini integration shell is
-              ready at{" "}
-              <code className="bg-white/60 px-1 rounded text-[10px]">
-                src/lib/ai-plan.ts
-              </code>
-              . Add your API key to auto-fill this entire table based on your
-              macro targets.
-            </p>
-          </div>
-        </>
+      {meals.length === 0 && (
+        <div className="mt-4">
+          <InlineNote icon={<CalendarDays size={15} />}>
+            Your meal library is empty —{" "}
+            <Link
+              to="/kitchen/meals"
+              className="font-medium underline underline-offset-2"
+            >
+              add a few meals
+            </Link>{" "}
+            and they&apos;ll show up in every slot below.
+          </InlineNote>
+        </div>
+      )}
+
+      {/* Mobile day-by-day view */}
+      <div className="lg:hidden mt-4">
+        <PlannerMobileView
+          weekStart={weekStart}
+          meals={meals}
+          plan={plan}
+          logged={log}
+          onChange={handleChange}
+          onServings={handleServings}
+          onLog={(date, type) => setLoggerSlot({ date, type })}
+          onRemoveLog={removeLog}
+        />
       </div>
+
+      {/* 7-day grid (desktop) */}
+      <Card className="mt-4 hidden lg:block">
+        <div className="overflow-x-auto -mx-2 px-2">
+          <table className="w-full min-w-[900px] text-left">
+            <thead>
+              <tr>
+                <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                  Day
+                </th>
+                {MEAL_TYPES.map((t) => (
+                  <th key={t} className="px-3 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        className={`w-2.5 h-2.5 rounded-sm border-l-2 ${TYPE_ACCENT[t]} bg-muted`}
+                      />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                        {t}
+                      </span>
+                    </div>
+                  </th>
+                ))}
+                <th className="px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                  Planned kcal
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {DAYS.map((day, i) => {
+                const date = dateInWeek(weekStart, i)
+                const dayPlanned = plan
+                  .filter((s) => s.date === date && s.meal_id)
+                  .reduce((sum, slot) => {
+                    const meal = mealById.get(slot.meal_id!)
+                    return sum + (meal?.calories ?? 0) * (slot.servings || 1)
+                  }, 0)
+                const isToday = date === today
+                return (
+                  <tr
+                    key={date}
+                    className={`border-t border-border ${
+                      isToday ? "bg-sage/40" : ""
+                    }`}
+                  >
+                    <td className="px-3 py-2.5 align-top whitespace-nowrap">
+                      <p className="text-xs font-semibold text-foreground">
+                        {dayFullLabel(day)}
+                        {isToday && (
+                          <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider text-secondary-foreground">
+                            today
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {parseISODate(date).getDate()}{" "}
+                        {parseISODate(date).toLocaleDateString(undefined, {
+                          month: "short",
+                        })}
+                      </p>
+                    </td>
+                    {MEAL_TYPES.map((type) => {
+                      const slot = getSlot(date, type)
+                      const selectedMeal = slot?.meal_id
+                        ? (mealById.get(slot.meal_id) ?? null)
+                        : null
+                      const servings = slot?.servings || 1
+                      const logEntry = log[slotKey(date, type)]
+
+                      return (
+                        <td key={type} className="px-3 py-2.5 align-top">
+                          <div className="min-h-[34px] mb-1.5">
+                            {selectedMeal ? (
+                              <>
+                                <p className="text-xs font-medium text-foreground leading-tight">
+                                  {selectedMeal.name}
+                                </p>
+                                <div className="mt-1 flex items-center justify-between gap-1.5">
+                                  <span className="tabular text-[10px] text-muted-foreground">
+                                    {selectedMeal.calories * servings} kcal
+                                  </span>
+                                  <span className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background px-0.5 py-0.5">
+                                    <button
+                                      type="button"
+                                      aria-label={`Decrease ${type} servings`}
+                                      disabled={servings <= 1}
+                                      onClick={() =>
+                                        handleServings(date, type, servings - 1)
+                                      }
+                                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"
+                                    >
+                                      <Minus size={10} />
+                                    </button>
+                                    <span className="tabular w-5 text-center text-[10px] font-medium text-foreground">
+                                      {servings}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      aria-label={`Increase ${type} servings`}
+                                      disabled={servings >= MAX_SERVINGS}
+                                      onClick={() =>
+                                        handleServings(date, type, servings + 1)
+                                      }
+                                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"
+                                    >
+                                      <Plus size={10} />
+                                    </button>
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground italic">
+                                Empty
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex gap-1 items-center">
+                            <select
+                              value={slot?.meal_id || ""}
+                              onChange={(e) =>
+                                handleChange(date, type, e.target.value)
+                              }
+                              aria-label={`${type} meal on ${dayFullLabel(day)}`}
+                              className="flex-1 min-w-0 px-1.5 py-1 pr-5 rounded-md border border-border bg-background text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
+                            >
+                              <option value="">— none —</option>
+                              {meals.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setLoggerSlot({ date, type })}
+                              title="Log what I ate"
+                              className="p-1 rounded-md text-muted-foreground hover:text-terracotta hover:bg-muted transition-colors"
+                            >
+                              <Camera size={12} />
+                            </button>
+                          </div>
+                          {logEntry && (
+                            <div className="mt-1.5 flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-sage border border-[#dde6d6]">
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-medium text-secondary-foreground truncate">
+                                  {logEntry.food}
+                                </p>
+                                <p className="tabular text-[10px] text-secondary-foreground/70">
+                                  ~{logEntry.calories} kcal
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                aria-label="Remove log"
+                                onClick={() => removeLog(date, type)}
+                                className="text-secondary-foreground/60 hover:text-secondary-foreground transition-colors shrink-0"
+                              >
+                                <X size={10} />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td className="px-3 py-2.5 text-right align-top whitespace-nowrap">
+                      <p className="tabular text-sm font-semibold text-foreground">
+                        {dayPlanned.toLocaleString()}
+                      </p>
+                      <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                        kcal
+                      </p>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            {plannedCount > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-border">
+                  <td className="px-3 py-2.5">
+                    <p className="text-xs font-semibold text-foreground uppercase tracking-widest">
+                      Weekly
+                    </p>
+                  </td>
+                  {columnTotals.map((total, i) => (
+                    <td key={MEAL_TYPES[i]} className="px-3 py-2.5">
+                      <p className="tabular text-sm font-semibold text-foreground">
+                        {total.toLocaleString()}
+                      </p>
+                      <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                        kcal
+                      </p>
+                    </td>
+                  ))}
+                  <td className="px-3 py-2.5 text-right">
+                    <p className="tabular text-sm font-semibold text-primary">
+                      {totalPlannedKcal.toLocaleString()}
+                    </p>
+                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                      kcal
+                    </p>
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </Card>
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        Servings scale ingredient amounts when you regenerate the grocery list.
+        Logged meals are what you ate — they never change the plan.
+      </p>
 
       <MealLoggerModal
         open={loggerSlot !== null}
@@ -470,10 +747,10 @@ export default function PlannerPage() {
         onClose={() => setLoggerSlot(null)}
         onSave={(m) => {
           if (!loggerSlot) return
-          const key = slotKey(loggerSlot.date, loggerSlot.type)
-          setLogged({ ...logged, [key]: m })
+          logMeal(loggerSlot.date, loggerSlot.type, m)
+          toast(`${loggerSlot.type} logged — ${m.calories} kcal`)
         }}
       />
-    </div>
+    </PageContainer>
   )
 }

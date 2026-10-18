@@ -1,13 +1,5 @@
 import { useState, useEffect } from "react"
-import {
-  HeartPulse,
-  Ruler,
-  Scale,
-  Target,
-  Flame,
-  Sparkles,
-  Check,
-} from "lucide-react"
+import { Check, Flame, HeartPulse, Sparkles, Target } from "lucide-react"
 import { getUserProfile, saveUserProfile } from "../lib/db"
 import { recommendNutrition } from "../lib/gemini"
 import {
@@ -20,13 +12,30 @@ import {
 import type { UserProfile, Sex, Goal, ActivityLevel } from "../lib/types"
 import { useAuth } from "../context/AuthContext"
 import { demoProfile } from "../lib/demo"
+import { useToast } from "../components/Toast"
+import { PageContainer, PageHeader } from "../components/PageHeader"
+import {
+  Badge,
+  Button,
+  Card,
+  CardHead,
+  CardSkeleton,
+  InlineNote,
+} from "../components/ui"
 
 const GOALS = Object.keys(GOAL_LABELS) as Goal[]
 const ACTIVITIES = Object.keys(ACTIVITY_LABELS) as ActivityLevel[]
 
+const field =
+  "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+
+const labelCls =
+  "block text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5"
+
 export default function ProfilePage() {
   const { session, openAuth } = useAuth()
   const userId = session?.user?.id ?? null
+  const { toast } = useToast()
 
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [result, setResult] = useState<UserProfile | null>(null)
@@ -37,6 +46,7 @@ export default function ProfilePage() {
   const [weightKg, setWeightKg] = useState("")
   const [goal, setGoal] = useState<Goal>("maintain")
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>("moderate")
+  const [activityMin, setActivityMin] = useState("")
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -51,6 +61,7 @@ export default function ProfilePage() {
     setWeightKg(String(p.weight_kg))
     setGoal(p.goal)
     setActivityLevel(p.activity_level)
+    setActivityMin(String(p.daily_activity_min ?? 0))
   }
 
   useEffect(() => {
@@ -76,6 +87,10 @@ export default function ProfilePage() {
     const ageNum = parseInt(age, 10)
     const height = parseFloat(heightCm)
     const weight = parseFloat(weightKg)
+    const activityMinutes = Math.min(
+      300,
+      Math.max(0, parseInt(activityMin, 10) || 0),
+    )
     if (!ageNum || !height || !weight) {
       setError("Please enter a valid age, height, and weight.")
       return
@@ -125,9 +140,11 @@ export default function ProfilePage() {
         carbs_g_target: recommendation.carbs_g_target,
         fat_g_target: recommendation.fat_g_target,
         ai_notes: recommendation.reasoning,
+        daily_activity_min: activityMinutes,
       })
       setProfile(saved)
       setResult(saved)
+      toast("Profile saved — targets recalculated")
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to save your profile.",
@@ -138,242 +155,263 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="flex-1 p-4 sm:p-8 min-h-screen">
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6 sm:mb-8">
-          <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700">
-            <HeartPulse size={20} />
-          </div>
-          <div>
-            <h2 className="text-2xl sm:text-3xl text-[var(--foreground)]">
-              Fitness Profile
-            </h2>
-            <p className="text-sm text-[var(--muted-foreground)] mt-1">
-              Your details power your daily calorie recommendation.
-            </p>
-          </div>
+    <PageContainer>
+      <PageHeader
+        title="Profile"
+        subtitle="Your details power your daily calorie and activity targets."
+      />
+
+      {!userId && (
+        <div className="mb-4">
+          <InlineNote tone="blue">
+            You&apos;re previewing with sample data — sign in to save your own
+            profile.
+          </InlineNote>
         </div>
+      )}
 
-        {loading ? (
-          <div className="text-center py-20 text-[var(--muted-foreground)] text-sm">
-            Loading your profile...
-          </div>
-        ) : (
-          <>
-            {/* Recommendation result */}
-            {result && (
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6 mb-6">
-                <div className="flex items-center gap-2 text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide mb-4">
-                  <Sparkles size={13} className="text-[var(--accent)]" />
-                  Your daily recommendation
-                  {result.updated_at && (
-                    <span className="normal-case font-normal">
-                      · updated{" "}
-                      {new Date(result.updated_at).toLocaleDateString(
-                        undefined,
-                        { month: "short", day: "numeric" },
-                      )}
-                    </span>
-                  )}
-                </div>
+      <div className="grid gap-4 lg:grid-cols-5">
+        {/* ── Recommendation ──────────────────────────────────── */}
+        <Card className="lg:col-span-2">
+          <CardHead
+            title="Daily recommendation"
+            icon={<Sparkles size={16} className="text-primary" />}
+            action={
+              result ? (
+                <Badge tone="sage">{GOAL_LABELS[result.goal]}</Badge>
+              ) : null
+            }
+          />
+          {loading ? (
+            <CardSkeleton rows={3} />
+          ) : result ? (
+            <>
+              <div className="flex items-end gap-2">
+                <span className="tabular text-5xl font-semibold leading-none text-foreground">
+                  {result.daily_calorie_target}
+                </span>
+                <span className="mb-1 text-sm text-muted-foreground">
+                  kcal / day
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {ACTIVITY_LABELS[result.activity_level]}
+                {result.updated_at &&
+                  ` · updated ${new Date(result.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
+              </p>
 
-                <div className="flex items-end gap-2 mb-1">
-                  <span className="text-5xl font-semibold text-[var(--foreground)]">
-                    {result.daily_calorie_target}
-                  </span>
-                  <span className="text-sm text-[var(--muted-foreground)] mb-2">
-                    kcal / day
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--muted-foreground)] mb-5">
-                  {GOAL_LABELS[result.goal]} ·{" "}
-                  {ACTIVITY_LABELS[result.activity_level]}
-                </p>
+              <div className="mt-5 grid grid-cols-3 gap-3">
+                {[
+                  {
+                    label: "Protein",
+                    value: result.protein_g_target,
+                  },
+                  {
+                    label: "Carbs",
+                    value: result.carbs_g_target,
+                  },
+                  {
+                    label: "Fat",
+                    value: result.fat_g_target,
+                  },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-xl bg-muted px-3 py-2.5">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {label}
+                    </p>
+                    <p className="tabular text-base font-semibold text-foreground">
+                      {value}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {" "}
+                        g
+                      </span>
+                    </p>
+                  </div>
+                ))}
+              </div>
 
-                <div className="grid grid-cols-3 gap-3 mb-5">
-                  {[
-                    {
-                      label: "Protein",
-                      value: result.protein_g_target,
-                      unit: "g",
-                    },
-                    { label: "Carbs", value: result.carbs_g_target, unit: "g" },
-                    { label: "Fat", value: result.fat_g_target, unit: "g" },
-                  ].map(({ label, value, unit }) => (
-                    <div
-                      key={label}
-                      className="px-3 py-2.5 rounded-xl bg-[var(--muted)]"
-                    >
-                      <p className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">
-                        {label}
-                      </p>
-                      <p className="text-base font-semibold text-[var(--foreground)]">
-                        {value}
-                        <span className="text-xs font-normal text-[var(--muted-foreground)]">
-                          {" "}
-                          {unit}
-                        </span>
-                      </p>
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-xs text-muted-foreground">
+                <span className="tabular flex items-center gap-1.5">
+                  <Flame size={13} className="text-terracotta" />
+                  BMR {result.bmr_kcal} kcal
+                </span>
+                <span className="tabular flex items-center gap-1.5">
+                  <Target size={13} className="text-secondary" />
+                  TDEE {result.tdee_kcal} kcal
+                </span>
+                <span className="tabular flex items-center gap-1.5">
+                  <HeartPulse size={13} className="text-error" />
+                  Activity goal {result.daily_activity_min} min/day
+                </span>
+              </div>
 
-                <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-[var(--muted-foreground)] mb-5">
-                  <span className="flex items-center gap-1.5">
-                    <Flame size={13} className="text-orange-500" />
-                    BMR {result.bmr_kcal} kcal
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Target size={13} className="text-violet-500" />
-                    TDEE {result.tdee_kcal} kcal
-                  </span>
-                </div>
-
-                {result.ai_notes && (
-                  <p className="text-xs text-[var(--primary)] bg-[var(--secondary)] rounded-xl px-4 py-3 leading-relaxed">
+              {result.ai_notes && (
+                <div className="mt-4">
+                  <InlineNote tone="sage" icon={<Sparkles size={14} />}>
                     {result.ai_notes}
-                  </p>
-                )}
+                  </InlineNote>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="py-6 text-sm text-muted-foreground">
+              Fill in your details and save to get a calorie and macro
+              recommendation.
+            </p>
+          )}
+        </Card>
+
+        {/* ── Form ────────────────────────────────────────────── */}
+        <Card className="lg:col-span-3">
+          <CardHead
+            title={profile ? "Update your profile" : "Tell us about yourself"}
+            icon={<HeartPulse size={16} className="text-error" />}
+          />
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls} htmlFor="pf-age">
+                  Age
+                </label>
+                <input
+                  id="pf-age"
+                  type="number"
+                  min="10"
+                  max="120"
+                  required
+                  value={age}
+                  onChange={(e) => setAge(e.target.value)}
+                  placeholder="e.g. 25"
+                  className={`${field} tabular`}
+                />
               </div>
-            )}
-
-            {/* Profile form */}
-            <form
-              onSubmit={handleSubmit}
-              className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6"
-            >
-              <h3 className="text-lg text-[var(--foreground)] mb-5">
-                {profile ? "Update your profile" : "Tell us about yourself"}
-              </h3>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5 uppercase tracking-wide">
-                    Age
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="120"
-                    required
-                    value={age}
-                    onChange={(e) => setAge(e.target.value)}
-                    placeholder="e.g. 25"
-                    className="w-full px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5 uppercase tracking-wide">
-                    Sex
-                  </label>
-                  <select
-                    value={sex}
-                    onChange={(e) => setSex(e.target.value as Sex)}
-                    className="w-full px-3 py-2.5 pr-8 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                  >
-                    <option value="female">Female</option>
-                    <option value="male">Male</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] mb-1.5 uppercase tracking-wide">
-                    <Ruler size={12} /> Height (cm)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="1"
-                    required
-                    value={heightCm}
-                    onChange={(e) => setHeightCm(e.target.value)}
-                    placeholder="e.g. 165"
-                    className="w-full px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                  />
-                </div>
-                <div>
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)] mb-1.5 uppercase tracking-wide">
-                    <Scale size={12} /> Weight (kg)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="1"
-                    required
-                    value={weightKg}
-                    onChange={(e) => setWeightKg(e.target.value)}
-                    placeholder="e.g. 60"
-                    className="w-full px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5 uppercase tracking-wide">
-                  Goal
+              <div>
+                <label className={labelCls} htmlFor="pf-sex">
+                  Sex
                 </label>
                 <select
-                  value={goal}
-                  onChange={(e) => setGoal(e.target.value as Goal)}
-                  className="w-full px-3 py-2.5 pr-8 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  id="pf-sex"
+                  value={sex}
+                  onChange={(e) => setSex(e.target.value as Sex)}
+                  className={field}
                 >
-                  {GOALS.map((g) => (
-                    <option key={g} value={g}>
-                      {GOAL_LABELS[g]}
-                    </option>
-                  ))}
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
                 </select>
-                <p className="text-xs text-[var(--muted-foreground)] mt-1.5">
-                  {GOAL_DESCRIPTIONS[goal]}
-                </p>
               </div>
-
-              <div className="mt-4">
-                <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5 uppercase tracking-wide">
-                  Lifestyle
+              <div>
+                <label className={labelCls} htmlFor="pf-height">
+                  Height (cm)
                 </label>
-                <select
-                  value={activityLevel}
-                  onChange={(e) =>
-                    setActivityLevel(e.target.value as ActivityLevel)
-                  }
-                  className="w-full px-3 py-2.5 pr-8 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                >
-                  {ACTIVITIES.map((a) => (
-                    <option key={a} value={a}>
-                      {ACTIVITY_LABELS[a]}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-[var(--muted-foreground)] mt-1.5">
-                  {ACTIVITY_DESCRIPTIONS[activityLevel]}
-                </p>
+                <input
+                  id="pf-height"
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  required
+                  value={heightCm}
+                  onChange={(e) => setHeightCm(e.target.value)}
+                  placeholder="e.g. 165"
+                  className={`${field} tabular`}
+                />
               </div>
-
-              {error && <p className="text-xs text-red-500 mt-4">{error}</p>}
-
-              <div className="flex justify-end mt-6">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-                >
-                  {saving ? (
-                    <Sparkles size={15} className="animate-spin" />
-                  ) : (
-                    <Check size={15} />
-                  )}
-                  {saving
-                    ? "Calculating..."
-                    : profile
-                      ? "Save & Recalculate"
-                      : "Save & Get My Recommendation"}
-                </button>
+              <div>
+                <label className={labelCls} htmlFor="pf-weight">
+                  Weight (kg)
+                </label>
+                <input
+                  id="pf-weight"
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  required
+                  value={weightKg}
+                  onChange={(e) => setWeightKg(e.target.value)}
+                  placeholder="e.g. 60"
+                  className={`${field} tabular`}
+                />
               </div>
-            </form>
-          </>
-        )}
+            </div>
+
+            <div className="mt-4">
+              <label className={labelCls} htmlFor="pf-goal">
+                Goal
+              </label>
+              <select
+                id="pf-goal"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value as Goal)}
+                className={field}
+              >
+                {GOALS.map((g) => (
+                  <option key={g} value={g}>
+                    {GOAL_LABELS[g]}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {GOAL_DESCRIPTIONS[goal]}
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <label className={labelCls} htmlFor="pf-activity">
+                Lifestyle
+              </label>
+              <select
+                id="pf-activity"
+                value={activityLevel}
+                onChange={(e) =>
+                  setActivityLevel(e.target.value as ActivityLevel)
+                }
+                className={field}
+              >
+                {ACTIVITIES.map((a) => (
+                  <option key={a} value={a}>
+                    {ACTIVITY_LABELS[a]}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {ACTIVITY_DESCRIPTIONS[activityLevel]}
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <label className={labelCls} htmlFor="pf-activity-min">
+                Daily activity goal (minutes)
+              </label>
+              <input
+                id="pf-activity-min"
+                type="number"
+                min="0"
+                max="300"
+                value={activityMin}
+                onChange={(e) => setActivityMin(e.target.value)}
+                placeholder="e.g. 30"
+                className={`${field} tabular max-w-[180px]`}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Walks, workouts, sport — the Progress page tracks your week
+                against this.
+              </p>
+            </div>
+
+            {error && <p className="mt-4 text-xs text-error">{error}</p>}
+
+            <div className="mt-6 flex justify-end">
+              <Button type="submit" loading={saving}>
+                {!saving && <Check size={15} />}
+                {saving
+                  ? "Calculating…"
+                  : profile
+                    ? "Save & Recalculate"
+                    : "Save & Get My Recommendation"}
+              </Button>
+            </div>
+          </form>
+        </Card>
       </div>
-    </div>
+    </PageContainer>
   )
 }

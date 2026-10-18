@@ -1,7 +1,12 @@
+import { Navigate } from "react-router-dom"
 import { Salad } from "lucide-react"
 import AuthForm from "../components/AuthForm"
+import { useAuth } from "../context/AuthContext"
 
 export default function LoginPage() {
+  const { session, loading } = useAuth()
+  if (!loading && session) return <Navigate to="/" replace />
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--background)]">
       <div className="w-full max-w-sm">

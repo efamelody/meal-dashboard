@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Camera, X } from "lucide-react"
+import { Camera, Minus, Plus, X } from "lucide-react"
 import { DAYS, dateInWeek, dayFullLabel, parseISODate } from "../lib/dates"
 import type {
   Meal,
@@ -9,14 +9,16 @@ import type {
   ISODate,
 } from "../lib/types"
 
-const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
+const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner", "Snack"]
 
 const TYPE_ACCENT: Record<MealType, string> = {
   Breakfast: "border-l-amber-400",
-  Lunch: "border-l-sky-400",
-  Dinner: "border-l-violet-400",
+  Lunch: "border-l-emerald-400",
+  Dinner: "border-l-sky-400",
   Snack: "border-l-rose-400",
 }
+
+const MAX_SERVINGS = 12
 
 interface PlannerMobileViewProps {
   weekStart: ISODate
@@ -24,6 +26,7 @@ interface PlannerMobileViewProps {
   plan: MealPlanSlot[]
   logged: Record<string, LoggedMeal>
   onChange: (date: ISODate, type: MealType, mealId: string) => void
+  onServings: (date: ISODate, type: MealType, servings: number) => void
   onLog: (date: ISODate, type: MealType) => void
   onRemoveLog: (date: ISODate, type: MealType) => void
 }
@@ -34,6 +37,7 @@ export default function PlannerMobileView({
   plan,
   logged,
   onChange,
+  onServings,
   onLog,
   onRemoveLog,
 }: PlannerMobileViewProps) {
@@ -44,19 +48,15 @@ export default function PlannerMobileView({
   const getSlot = (date: ISODate, type: MealType): MealPlanSlot | undefined =>
     plan.find((s) => s.date === date && s.meal_type === type)
 
-  const dayCalories = (date: ISODate): number => {
-    const planned = plan
+  // Planned calories only (servings-aware) — logged intake is tracked
+  // separately so the two are never double-counted.
+  const plannedCalories = (date: ISODate): number =>
+    plan
       .filter((s) => s.date === date && s.meal_id)
       .reduce((sum, slot) => {
         const meal = meals.find((m) => m.id === slot.meal_id)
-        return sum + (meal?.calories || 0)
+        return sum + (meal?.calories || 0) * (slot.servings || 1)
       }, 0)
-    const loggedCals = MEAL_TYPES.reduce(
-      (sum, type) => sum + (logged[slotKey(date, type)]?.calories || 0),
-      0,
-    )
-    return planned + loggedCals
-  }
 
   const activeDate = dateInWeek(weekStart, day)
 
@@ -73,19 +73,19 @@ export default function PlannerMobileView({
               onClick={() => setDay(i)}
               className={`shrink-0 flex flex-col items-center px-4 py-2 rounded-xl border transition-colors ${
                 active
-                  ? "bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]"
-                  : "bg-[var(--card)] text-[var(--foreground)] border-[var(--border)]"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card text-foreground border-border"
               }`}
             >
               <span className="text-sm font-semibold">{dayFullLabel(d)}</span>
               <span
-                className={`text-[10px] ${
+                className={`tabular text-[10px] ${
                   active
-                    ? "text-[var(--primary-foreground)]/80"
-                    : "text-[var(--muted-foreground)]"
+                    ? "text-primary-foreground/80"
+                    : "text-muted-foreground"
                 }`}
               >
-                {parseISODate(date).getDate()} · {dayCalories(date)} kcal
+                {parseISODate(date).getDate()} · {plannedCalories(date)} kcal
               </span>
             </button>
           )
@@ -99,21 +99,22 @@ export default function PlannerMobileView({
           const selectedMeal = slot?.meal_id
             ? meals.find((m) => m.id === slot.meal_id)
             : null
+          const servings = slot?.servings || 1
           const log = logged[slotKey(activeDate, type)]
 
           return (
             <div
               key={type}
-              className={`bg-[var(--card)] border border-[var(--border)] border-l-4 ${TYPE_ACCENT[type]} rounded-2xl p-4`}
+              className={`bg-card border border-border border-l-4 ${TYPE_ACCENT[type]} rounded-2xl p-4`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
                   {type}
                 </span>
                 <button
                   onClick={() => onLog(activeDate, type)}
                   title="Log what I ate"
-                  className="p-2 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--accent)] hover:bg-[var(--muted)] transition-colors"
+                  className="p-2 rounded-lg text-muted-foreground hover:text-terracotta hover:bg-muted transition-colors"
                 >
                   <Camera size={16} />
                 </button>
@@ -121,23 +122,53 @@ export default function PlannerMobileView({
 
               {selectedMeal ? (
                 <>
-                  <p className="text-sm font-medium text-[var(--foreground)] leading-tight">
+                  <p className="text-sm font-medium text-foreground leading-tight">
                     {selectedMeal.name}
                   </p>
-                  <p className="text-xs text-[var(--muted-foreground)]">
-                    {selectedMeal.calories} kcal
-                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="tabular text-xs text-muted-foreground">
+                      {selectedMeal.calories * servings} kcal
+                      {servings > 1
+                        ? ` (${selectedMeal.calories} × ${servings})`
+                        : ""}
+                    </p>
+                    <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-background px-0.5 py-0.5">
+                      <button
+                        type="button"
+                        aria-label={`Decrease ${type} servings`}
+                        disabled={servings <= 1}
+                        onClick={() =>
+                          onServings(activeDate, type, servings - 1)
+                        }
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <span className="tabular w-6 text-center text-xs font-medium text-foreground">
+                        {servings}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Increase ${type} servings`}
+                        disabled={servings >= MAX_SERVINGS}
+                        onClick={() =>
+                          onServings(activeDate, type, servings + 1)
+                        }
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
+                  </div>
                 </>
               ) : (
-                <p className="text-xs text-[var(--muted-foreground)] italic">
-                  Empty
-                </p>
+                <p className="text-xs text-muted-foreground italic">Empty</p>
               )}
 
               <select
                 value={slot?.meal_id || ""}
                 onChange={(e) => onChange(activeDate, type, e.target.value)}
-                className="mt-2 w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+                className="mt-2 w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">— none —</option>
                 {meals.map((m) => (
@@ -148,18 +179,19 @@ export default function PlannerMobileView({
               </select>
 
               {log && (
-                <div className="mt-2 flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-amber-50 border border-amber-200">
+                <div className="mt-2 flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg bg-sage border border-[#dde6d6]">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-amber-800 truncate">
+                    <p className="text-xs font-medium text-secondary-foreground truncate">
                       {log.food}
                     </p>
-                    <p className="text-[10px] text-amber-700">
-                      ~{log.calories} kcal
+                    <p className="tabular text-[10px] text-secondary-foreground/70">
+                      logged · ~{log.calories} kcal
                     </p>
                   </div>
                   <button
+                    aria-label="Remove log"
                     onClick={() => onRemoveLog(activeDate, type)}
-                    className="text-amber-700/60 hover:text-amber-800 transition-colors shrink-0"
+                    className="text-secondary-foreground/60 hover:text-secondary-foreground transition-colors"
                   >
                     <X size={12} />
                   </button>

@@ -16,29 +16,52 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-border: var(--border);
   --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-sage: var(--sage);
+  --color-sand: var(--sand);
+  --color-terracotta: var(--terracotta);
+  --color-blue-soft: var(--blue-soft);
+  --color-surface-sunken: var(--surface-sunken);
   --radius-DEFAULT: var(--radius);
 }
 
 :root {
-  --background: #F5F3EF;
-  --foreground: #1A1F16;
-  --card: #FFFFFF;
-  --card-foreground: #1A1F16;
-  --primary: #1B4332;
-  --primary-foreground: #F5F3EF;
-  --secondary: #D8F3DC;
-  --secondary-foreground: #1B4332;
-  --muted: #EDEBE6;
-  --muted-foreground: #6B7568;
-  --accent: #52B788;
-  --accent-foreground: #0D2818;
-  --border: #DDD9D0;
-  --ring: #52B788;
-  --radius: 10px;
+  /* Brand palette — warm, calm, food-oriented */
+  --background: #f8f7f2;
+  --foreground: #292d27;
+  --card: #ffffff;
+  --card-foreground: #292d27;
+  --primary: #718563;
+  --primary-foreground: #ffffff;
+  --secondary: #e9efe4;
+  --secondary-foreground: #52684a;
+  --muted: #f0efe8;
+  --muted-foreground: #777b72;
+  --accent: #52684a;
+  --accent-foreground: #ffffff;
+  --border: #e7e6df;
+  --ring: #718563;
+  --radius: 14px;
+
+  /* Semantic accents */
+  --success: #5e815b;
+  --warning: #a9773e;
+  --error: #b75b51;
+  --sage: #e9efe4;
+  --sand: #f2e7d8;
+  --terracotta: #bf805d;
+  --blue-soft: #e5ecf4;
+  --surface-sunken: #f1f0e9;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -46,25 +69,77 @@ body {
   color: var(--foreground);
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-h1, h2, h3 {
-  font-family: 'DM Serif Display', serif;
+.font-display {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--foreground);
+}
+
+/* Numeric values that change (kcal, quantities, durations) */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 2px;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
 }
 
 select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7568' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23777B72' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
