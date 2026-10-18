@@ -1,10 +1,13 @@
 // Meal log store — what the user actually ate, keyed `${date}-${meal_type}`.
-// Kept in localStorage exactly as the planner always did; this module is the
-// single source of truth so Home, Plan, and Progress agree on logged intake.
+// Backed by the `meal_log` table so logged intake follows the account across
+// devices; signed-out previews fall back to localStorage as before. This
+// module stays the single source of truth so Home, Plan, and Progress agree.
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { ISODate, LoggedMeal, MealType } from "./types"
 import { dateInWeek, startOfWeek } from "./dates"
+import { supabase } from "./supabase"
+import { useAuth } from "../context/AuthContext"
 
 const LOG_KEY = "meal-kit-planner-log"
 
@@ -22,8 +25,10 @@ export function slotKey(date: ISODate, type: MealType): string {
   return `${date}-${type}`
 }
 
-// Logs are keyed `${date}-${meal_type}`. One-time migration re-bases logs
-// stored under the old `${day}-${meal_type}` keys onto the current week.
+// Signed-out fallback store. Logs are keyed `${date}-${meal_type}`; a one-time
+// migration re-bases entries stored under the old `${day}-${meal_type}` keys
+// onto the current week. Entries logged here are pushed to the account on the
+// next sign-in, then this store is cleared.
 export function loadMealLog(): Record<string, LoggedMeal> {
   try {
     const raw = window.localStorage.getItem(LOG_KEY)
@@ -57,6 +62,85 @@ export function saveMealLog(log: Record<string, LoggedMeal>): void {
   }
 }
 
+function toRow(userId: string, key: string, entry: LoggedMeal) {
+  return {
+    user_id: userId,
+    date: key.slice(0, 10),
+    meal_type: key.slice(11) as MealType,
+    food: entry.food,
+    calories: entry.calories,
+    protein_g: entry.protein_g,
+    carbs_g: entry.carbs_g,
+    fat_g: entry.fat_g,
+    updated_at: new Date().toISOString(),
+  }
+}
+
+async function fetchMealLog(
+  userId: string,
+): Promise<Record<string, LoggedMeal>> {
+  const { data, error } = await supabase
+    .from("meal_log")
+    .select("date, meal_type, food, calories, protein_g, carbs_g, fat_g")
+    .eq("user_id", userId)
+  if (error) {
+    console.error("fetchMealLog:", error.message)
+    return {}
+  }
+  const out: Record<string, LoggedMeal> = {}
+  for (const row of data ?? []) {
+    out[`${row.date}-${row.meal_type}`] = {
+      food: row.food,
+      calories: Number(row.calories),
+      protein_g: Number(row.protein_g),
+      carbs_g: Number(row.carbs_g),
+      fat_g: Number(row.fat_g),
+    }
+  }
+  return out
+}
+
+async function upsertMealLogEntry(
+  userId: string,
+  date: ISODate,
+  type: MealType,
+  entry: LoggedMeal,
+): Promise<void> {
+  const { error } = await supabase
+    .from("meal_log")
+    .upsert(toRow(userId, slotKey(date, type), entry), {
+      onConflict: "user_id,date,meal_type",
+    })
+  if (error) throw error
+}
+
+async function upsertMealLogEntries(
+  userId: string,
+  entries: Record<string, LoggedMeal>,
+): Promise<void> {
+  const rows = Object.entries(entries).map(([key, entry]) =>
+    toRow(userId, key, entry),
+  )
+  const { error } = await supabase
+    .from("meal_log")
+    .upsert(rows, { onConflict: "user_id,date,meal_type" })
+  if (error) throw error
+}
+
+async function deleteMealLogEntry(
+  userId: string,
+  date: ISODate,
+  type: MealType,
+): Promise<void> {
+  const { error } = await supabase
+    .from("meal_log")
+    .delete()
+    .eq("user_id", userId)
+    .eq("date", date)
+    .eq("meal_type", type)
+  if (error) throw error
+}
+
 export interface MealLogStore {
   log: Record<string, LoggedMeal>
   logMeal: (date: ISODate, type: MealType, entry: LoggedMeal) => void
@@ -64,27 +148,86 @@ export interface MealLogStore {
 }
 
 export function useMealLog(): MealLogStore {
-  const [log, setLog] = useState<Record<string, LoggedMeal>>(loadMealLog)
+  const { session } = useAuth()
+  const userId = session?.user?.id ?? null
+  const [log, setLog] = useState<Record<string, LoggedMeal>>({})
+  const logRef = useRef(log)
+  const userIdRef = useRef(userId)
+
+  const applyLog = useCallback((next: Record<string, LoggedMeal>) => {
+    logRef.current = next
+    setLog(next)
+  }, [])
+
+  useEffect(() => {
+    userIdRef.current = userId
+    let cancelled = false
+
+    async function load() {
+      if (!userId) {
+        applyLog(loadMealLog())
+        return
+      }
+      const remote = await fetchMealLog(userId)
+      if (cancelled) return
+      // One-time move of entries logged on this device before it synced:
+      // local-only slots are pushed to the account, then the local copy
+      // is cleared. Remote rows win on conflicts.
+      const local = loadMealLog()
+      const pending = Object.fromEntries(
+        Object.entries(local).filter(([key]) => remote[key] === undefined),
+      )
+      applyLog({ ...pending, ...remote })
+      if (Object.keys(local).length) {
+        try {
+          if (Object.keys(pending).length) {
+            await upsertMealLogEntries(userId, pending)
+          }
+          saveMealLog({})
+        } catch (err) {
+          console.error("mealLog: local sync failed", err)
+        }
+      }
+    }
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId, applyLog])
 
   const logMeal = useCallback(
     (date: ISODate, type: MealType, entry: LoggedMeal) => {
-      setLog((prev) => {
-        const next = { ...prev, [slotKey(date, type)]: entry }
+      const next = { ...logRef.current, [slotKey(date, type)]: entry }
+      applyLog(next)
+      const userId = userIdRef.current
+      if (!userId) {
         saveMealLog(next)
-        return next
-      })
+        return
+      }
+      upsertMealLogEntry(userId, date, type, entry).catch((err) =>
+        console.error("logMeal:", err),
+      )
     },
-    [],
+    [applyLog],
   )
 
-  const removeLog = useCallback((date: ISODate, type: MealType) => {
-    setLog((prev) => {
-      const next = { ...prev }
+  const removeLog = useCallback(
+    (date: ISODate, type: MealType) => {
+      const next = { ...logRef.current }
       delete next[slotKey(date, type)]
-      saveMealLog(next)
-      return next
-    })
-  }, [])
+      applyLog(next)
+      const userId = userIdRef.current
+      if (!userId) {
+        saveMealLog(next)
+        return
+      }
+      deleteMealLogEntry(userId, date, type).catch((err) =>
+        console.error("removeLog:", err),
+      )
+    },
+    [applyLog],
+  )
 
   return { log, logMeal, removeLog }
 }
