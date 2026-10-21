@@ -18,7 +18,8 @@ import {
   startOfWeek,
   toISODate,
 } from "../lib/dates"
-import { entriesForDate, totalsForDate, useMealLog } from "../lib/mealLog"
+import { entriesForDate, totalsForDate } from "../lib/mealLog"
+import { useMealLog } from "../context/MealLogContext"
 import type { Activity, ActivityType, ISODate, UserProfile } from "../lib/types"
 import {
   ACTIVITY_ICONS,
@@ -130,7 +131,7 @@ function longDate(date: ISODate): string {
 export default function ProgressPage() {
   const { session } = useAuth()
   const userId = session?.user?.id ?? null
-  const { log, removeLog } = useMealLog()
+  const { log, removeFood } = useMealLog()
   const { toast } = useToast()
 
   const [profile, setProfile] = useState<UserProfile | null>(null)
@@ -736,29 +737,40 @@ export default function ProgressPage() {
               )}
               <div className="space-y-3">
                 {entries.map(({ type, entry }) => (
-                  <div key={type} className="flex items-start gap-2.5">
-                    <Badge tone="neutral">{type}</Badge>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {entry.food}
-                      </p>
-                      <p className="tabular text-xs text-muted-foreground">
-                        {entry.calories} kcal · P{entry.protein_g} C
-                        {entry.carbs_g} F{entry.fat_g}
-                      </p>
+                  <div key={type}>
+                    <div className="flex items-center gap-2">
+                      <Badge tone="neutral">{type}</Badge>
+                      <span className="tabular text-xs text-muted-foreground">
+                        {entry.calories} kcal
+                      </span>
                     </div>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`Remove ${type} log`}
-                      className="hover:text-error"
-                      onClick={() => {
-                        removeLog(selectedDate, type)
-                        toast(`${type} log removed`, "info")
-                      }}
-                    >
-                      <X size={14} />
-                    </Button>
+                    <div className="mt-1.5 space-y-1.5">
+                      {entry.foods.map((food) => (
+                        <div key={food.id} className="flex items-start gap-2.5">
+                          <div className="min-w-0 flex-1 pl-1">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {food.food}
+                            </p>
+                            <p className="tabular text-xs text-muted-foreground">
+                              {food.calories} kcal · P{food.protein_g} C
+                              {food.carbs_g} F{food.fat_g}
+                            </p>
+                          </div>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={`Remove ${food.food}`}
+                            className="hover:text-error"
+                            onClick={() => {
+                              removeFood(selectedDate, type, food.id)
+                              toast(`${food.food} removed`, "info")
+                            }}
+                          >
+                            <X size={14} />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>

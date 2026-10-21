@@ -27,7 +27,7 @@ interface PlannerMobileViewProps {
   logged: Record<string, LoggedMeal>
   onChange: (date: ISODate, type: MealType, mealId: string) => void
   onServings: (date: ISODate, type: MealType, servings: number) => void
-  onLog: (date: ISODate, type: MealType) => void
+  onLog: (date: ISODate, type: MealType, mode: "add" | "edit") => void
   onRemoveLog: (date: ISODate, type: MealType) => void
 }
 
@@ -112,7 +112,7 @@ export default function PlannerMobileView({
                   {type}
                 </span>
                 <button
-                  onClick={() => onLog(activeDate, type)}
+                  onClick={() => onLog(activeDate, type, "add")}
                   title="Log what I ate"
                   className="p-2 rounded-lg text-muted-foreground hover:text-terracotta hover:bg-muted transition-colors"
                 >
@@ -179,22 +179,31 @@ export default function PlannerMobileView({
               </select>
 
               {log && (
-                <div className="mt-2 flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg bg-sage border border-[#dde6d6]">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-secondary-foreground truncate">
-                      {log.food}
-                    </p>
-                    <p className="tabular text-[10px] text-secondary-foreground/70">
-                      logged · ~{log.calories} kcal
-                    </p>
+                <div className="mt-2 px-2 py-1.5 rounded-lg bg-sage border border-[#dde6d6]">
+                  <div className="flex items-center justify-between gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onLog(activeDate, type, "edit")}
+                      title="Edit logged foods"
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <p className="text-xs font-medium text-secondary-foreground truncate">
+                        {log.foods.map((food) => food.food).join(", ")}
+                      </p>
+                      <p className="tabular text-[10px] text-secondary-foreground/70">
+                        logged · {log.foods.length} food
+                        {log.foods.length === 1 ? "" : "s"} · ~{log.calories}{" "}
+                        kcal
+                      </p>
+                    </button>
+                    <button
+                      aria-label="Remove log"
+                      onClick={() => onRemoveLog(activeDate, type)}
+                      className="text-secondary-foreground/60 hover:text-secondary-foreground transition-colors shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
                   </div>
-                  <button
-                    aria-label="Remove log"
-                    onClick={() => onRemoveLog(activeDate, type)}
-                    className="text-secondary-foreground/60 hover:text-secondary-foreground transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
                 </div>
               )}
             </div>

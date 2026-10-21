@@ -26,7 +26,8 @@ import {
   startOfWeek,
   toISODate,
 } from "../lib/dates"
-import { slotKey, useMealLog } from "../lib/mealLog"
+import { slotKey } from "../lib/mealLog"
+import { useMealLog } from "../context/MealLogContext"
 import type {
   DashboardSummary,
   Meal,
@@ -92,10 +93,11 @@ export default function PlannerPage() {
   const [loggerSlot, setLoggerSlot] = useState<{
     date: ISODate
     type: MealType
+    mode: "add" | "edit"
   } | null>(null)
   const [generating, setGenerating] = useState(false)
   const [autoFilling, setAutoFilling] = useState(false)
-  const { log, logMeal, removeLog } = useMealLog()
+  const { log, saveSlotFoods, removeLog } = useMealLog()
 
   const weekParam = searchParams.get("week")
   const weekStart: ISODate = isISODate(weekParam) ? weekParam : startOfWeek()
@@ -518,7 +520,7 @@ export default function PlannerPage() {
           logged={log}
           onChange={handleChange}
           onServings={handleServings}
-          onLog={(date, type) => setLoggerSlot({ date, type })}
+          onLog={(date, type, mode) => setLoggerSlot({ date, type, mode })}
           onRemoveLog={removeLog}
         />
       </div>
@@ -655,7 +657,9 @@ export default function PlannerPage() {
                             </select>
                             <button
                               type="button"
-                              onClick={() => setLoggerSlot({ date, type })}
+                              onClick={() =>
+                                setLoggerSlot({ date, type, mode: "add" })
+                              }
                               title="Log what I ate"
                               className="p-1 rounded-md text-muted-foreground hover:text-terracotta hover:bg-muted transition-colors"
                             >
@@ -663,23 +667,40 @@ export default function PlannerPage() {
                             </button>
                           </div>
                           {logEntry && (
-                            <div className="mt-1.5 flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-sage border border-[#dde6d6]">
-                              <div className="min-w-0">
-                                <p className="text-[10px] font-medium text-secondary-foreground truncate">
-                                  {logEntry.food}
-                                </p>
-                                <p className="tabular text-[10px] text-secondary-foreground/70">
-                                  ~{logEntry.calories} kcal
-                                </p>
+                            <div className="mt-1.5 px-2 py-1 rounded-md bg-sage border border-[#dde6d6]">
+                              <div className="flex items-center justify-between gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLoggerSlot({
+                                      date,
+                                      type,
+                                      mode: "edit",
+                                    })
+                                  }
+                                  title="Edit logged foods"
+                                  className="min-w-0 text-left"
+                                >
+                                  <p className="text-[10px] font-medium text-secondary-foreground truncate">
+                                    {logEntry.foods
+                                      .map((food) => food.food)
+                                      .join(", ")}
+                                  </p>
+                                  <p className="tabular text-[10px] text-secondary-foreground/70">
+                                    {logEntry.foods.length} food
+                                    {logEntry.foods.length === 1 ? "" : "s"} · ~
+                                    {logEntry.calories} kcal
+                                  </p>
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Remove log"
+                                  onClick={() => removeLog(date, type)}
+                                  className="text-secondary-foreground/60 hover:text-secondary-foreground transition-colors shrink-0"
+                                >
+                                  <X size={10} />
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                aria-label="Remove log"
-                                onClick={() => removeLog(date, type)}
-                                className="text-secondary-foreground/60 hover:text-secondary-foreground transition-colors shrink-0"
-                              >
-                                <X size={10} />
-                              </button>
                             </div>
                           )}
                         </td>
@@ -744,11 +765,18 @@ export default function PlannerPage() {
               })} · ${loggerSlot.type}`
             : ""
         }
+        existing={
+          loggerSlot
+            ? (log[slotKey(loggerSlot.date, loggerSlot.type)]?.foods ?? [])
+            : []
+        }
+        startComposing={loggerSlot?.mode === "add"}
         onClose={() => setLoggerSlot(null)}
-        onSave={(m) => {
+        onSave={(foods) => {
           if (!loggerSlot) return
-          logMeal(loggerSlot.date, loggerSlot.type, m)
-          toast(`${loggerSlot.type} logged — ${m.calories} kcal`)
+          saveSlotFoods(loggerSlot.date, loggerSlot.type, foods)
+          const total = foods.reduce((sum, food) => sum + food.calories, 0)
+          toast(`${loggerSlot.type} logged — ${total} kcal`)
         }}
       />
     </PageContainer>

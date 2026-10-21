@@ -23,7 +23,8 @@ import { useAuth } from "../context/AuthContext"
 import { getHomeData, updateActivity, type HomeData } from "../lib/db"
 import { buildDemoHome } from "../lib/demo"
 import { toISODate } from "../lib/dates"
-import { entriesForDate, totalsForDate, useMealLog } from "../lib/mealLog"
+import { entriesForDate, totalsForDate } from "../lib/mealLog"
+import { useMealLog } from "../context/MealLogContext"
 import { ACTIVITY_ICONS, activityDisplayLabel } from "../lib/activityMeta"
 import {
   fmtRange,
@@ -32,7 +33,7 @@ import {
   sumCompletedBurn,
 } from "../lib/calorieEstimate"
 import { GOAL_LABELS } from "../lib/nutrition"
-import type { Activity, MealType } from "../lib/types"
+import type { Activity, LoggedFoodItem, MealType } from "../lib/types"
 import { PageContainer, PageHeader } from "../components/PageHeader"
 import MealLoggerModal from "../components/MealLoggerModal"
 import { useToast } from "../components/Toast"
@@ -68,7 +69,7 @@ export default function HomePage() {
   const userId = session?.user?.id ?? null
   const { toast } = useToast()
   const navigate = useNavigate()
-  const { log, logMeal, removeLog } = useMealLog()
+  const { log, saveSlotFoods, removeLog } = useMealLog()
 
   const now = useMemo(() => new Date(), [])
   const today = useMemo(() => toISODate(now), [now])
@@ -77,6 +78,8 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loggerType, setLoggerType] = useState<MealType | null>(null)
+  const [loggerExisting, setLoggerExisting] = useState<LoggedFoodItem[]>([])
+  const [loggerComposing, setLoggerComposing] = useState(false)
 
   const load = useCallback(
     async (showSpinner: boolean) => {
@@ -200,8 +203,14 @@ export default function HomePage() {
         ? "Estimated deficit"
         : "Estimated balance"
 
-  function openLogger(type: MealType) {
+  function openLogger(
+    type: MealType,
+    existing?: LoggedFoodItem[],
+    composing = false,
+  ) {
     setLoggerType(type)
+    setLoggerExisting(existing ?? [])
+    setLoggerComposing(composing)
   }
 
   function openFirstUnlogged() {
@@ -209,19 +218,14 @@ export default function HomePage() {
       MEAL_TYPES.find((t) => !loggedByType.has(t)) ??
       home!.todaySlots[0]?.meal_type ??
       "Breakfast"
-    setLoggerType(next)
+    openLogger(next)
   }
 
-  async function handleLogSave(entry: {
-    food: string
-    calories: number
-    protein_g: number
-    carbs_g: number
-    fat_g: number
-  }) {
+  function handleLogSave(foods: LoggedFoodItem[]) {
     if (!loggerType) return
-    logMeal(today, loggerType, entry)
-    toast(`${loggerType} logged — ${entry.calories} kcal`)
+    saveSlotFoods(today, loggerType, foods)
+    const total = foods.reduce((sum, food) => sum + food.calories, 0)
+    toast(`${loggerType} logged — ${total} kcal`)
   }
 
   function handleLogRemove(type: MealType) {
@@ -335,7 +339,9 @@ export default function HomePage() {
                 {logged.count > 0
                   ? `${logged.count} meal${
                       logged.count === 1 ? "" : "s"
-                    } logged`
+                    } logged · ${logged.foods} food${
+                      logged.foods === 1 ? "" : "s"
+                    }`
                   : "Nothing logged yet"}{" "}
                 · planned today: {plannedKcal} kcal
               </p>
@@ -600,37 +606,86 @@ export default function HomePage() {
               ? planned.calories * slot.servings
               : 0
             return (
-              <li key={slot.meal_type} className="flex items-center gap-3 py-3">
-                <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${MEAL_ACCENT[slot.meal_type]}`}
-                >
-                  <Icon size={17} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-sm font-medium text-foreground">
-                      {planned ? planned.name : "Nothing planned"}
-                    </span>
-                    {slot.servings > 1 && (
-                      <Badge tone="neutral">×{slot.servings}</Badge>
+              <li key={slot.meal_type} className="py-3">
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${MEAL_ACCENT[slot.meal_type]}`}
+                  >
+                    <Icon size={17} />
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-sm font-semibold text-foreground">
+                        {slot.meal_type}
+                      </span>
+                      {planned ? (
+                        <span className="text-sm text-foreground">
+                          {planned.name}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          Nothing planned
+                        </span>
+                      )}
+                      {slot.servings > 1 && (
+                        <Badge tone="neutral">×{slot.servings}</Badge>
+                      )}
+                      {loggedEntry && <Badge tone="sage">Logged</Badge>}
+                    </div>
+
+                    {planned && (
+                      <p className="tabular text-xs text-muted-foreground">
+                        {plannedKcalForSlot} kcal planned
+                      </p>
                     )}
-                    {loggedEntry && <Badge tone="sage">Logged</Badge>}
+
+                    {loggedEntry && (
+                      <ul className="mt-1 space-y-0.5">
+                        {loggedEntry.foods.map((food) => (
+                          <li
+                            key={food.id}
+                            className="tabular text-xs leading-relaxed text-muted-foreground"
+                          >
+                            <span className="text-foreground">{food.food}</span>{" "}
+                            · {food.calories} kcal
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                  <p className="tabular truncate text-xs text-muted-foreground">
-                    {slot.meal_type}
-                    {planned ? ` · ${plannedKcalForSlot} kcal planned` : ""}
-                    {loggedEntry
-                      ? ` · logged: ${loggedEntry.food} (${loggedEntry.calories} kcal)`
-                      : ""}
-                  </p>
+
+                  {loggedEntry && (
+                    <div className="shrink-0 text-right">
+                      <p className="tabular text-base font-semibold leading-tight text-foreground">
+                        {loggedEntry.calories}
+                      </p>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        kcal
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
+
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[52px] sm:pl-0">
                   {loggedEntry ? (
                     <>
                       <Button
                         size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          openLogger(slot.meal_type, loggedEntry.foods, true)
+                        }
+                      >
+                        <Plus size={14} />
+                        Add food
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="ghost"
-                        onClick={() => openLogger(slot.meal_type)}
+                        onClick={() =>
+                          openLogger(slot.meal_type, loggedEntry.foods)
+                        }
                       >
                         Edit
                       </Button>
@@ -795,6 +850,8 @@ export default function HomePage() {
       <MealLoggerModal
         open={loggerType !== null}
         slotLabel={loggerSlotLabel}
+        existing={loggerExisting}
+        startComposing={loggerComposing}
         onClose={() => setLoggerType(null)}
         onSave={handleLogSave}
       />

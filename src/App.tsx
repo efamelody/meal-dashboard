@@ -7,11 +7,13 @@ import {
 } from "react-router-dom"
 import { Salad, LogOut } from "lucide-react"
 import { AuthProvider, useAuth } from "./context/AuthContext"
+import { MealLogProvider } from "./context/MealLogContext"
 import { ToastProvider } from "./components/Toast"
 import Sidebar from "./components/Sidebar"
 import BottomNav from "./components/BottomNav"
 import ProfileMenu from "./components/ProfileMenu"
 import AiFooter from "./components/AiFooter"
+import MealLogBanner from "./components/MealLogBanner"
 import LoginPage from "./pages/LoginPage"
 import HomePage from "./pages/HomePage"
 import MealsPage from "./pages/MealsPage"
@@ -114,6 +116,7 @@ function AppShell() {
           <div className="lg:pl-64 flex min-h-screen flex-col">
             <MobileTopBar />
             {!session && <PreviewBanner />}
+            <MealLogBanner />
             <main className="flex-1 min-w-0 pb-4">
               <Routes>
                 <Route path="/" element={<HomePage />} />
@@ -165,7 +168,9 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppShell />
+      <MealLogProvider>
+        <AppShell />
+      </MealLogProvider>
     </AuthProvider>
   )
 }

@@ -29,7 +29,8 @@ import {
   sendFriendRequest,
   togglePostLike,
 } from "../lib/db"
-import { entriesForDate, useMealLog } from "../lib/mealLog"
+import { entriesForDate } from "../lib/mealLog"
+import { useMealLog } from "../context/MealLogContext"
 import { startOfWeek, toISODate } from "../lib/dates"
 import type {
   Activity,
@@ -381,10 +382,12 @@ export default function CommunityPage() {
   const attachOptions = useMemo(() => {
     if (kind === "update") return []
     if (kind === "meal") {
-      const logged = loggedToday.map((e) => ({
-        value: `logged:${e.type}`,
-        label: `Logged today · ${e.entry.food} (${e.entry.calories} kcal)`,
-      }))
+      const logged = loggedToday.flatMap((e) =>
+        e.entry.foods.map((food) => ({
+          value: `logged:${e.type}:${food.id}`,
+          label: `${e.type} · ${food.food} (${food.calories} kcal)`,
+        })),
+      )
       const saved = meals.map((m) => ({
         value: `meal:${m.id}`,
         label: `${m.name} (${m.calories} kcal)`,
@@ -414,14 +417,17 @@ export default function CommunityPage() {
     const id = attachId.slice(sep + 1)
 
     if (prefix === "logged") {
-      const found = loggedToday.find((e) => e.type === id)
+      const [, type, foodId] = attachId.split(":")
+      const found = loggedToday
+        .find((e) => e.type === type)
+        ?.entry.foods.find((food) => food.id === foodId)
       if (!found) return {}
       return {
-        name: found.entry.food,
-        calories: found.entry.calories,
-        protein_g: found.entry.protein_g,
-        carbs_g: found.entry.carbs_g,
-        fat_g: found.entry.fat_g,
+        name: found.food,
+        calories: found.calories,
+        protein_g: found.protein_g,
+        carbs_g: found.carbs_g,
+        fat_g: found.fat_g,
       }
     }
     if (prefix === "meal") {

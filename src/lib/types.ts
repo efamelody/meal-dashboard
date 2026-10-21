@@ -83,8 +83,32 @@ export interface Activity {
   shared_at?: string | null
 }
 
-export interface LoggedMeal {
+/** One food inside a logged meal slot (e.g. "Roti canai" in Breakfast). */
+export interface LoggedFoodItem {
+  id: string
   food: string
+  calories: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  /** What the AI identified the food as. Null when the user named it. */
+  ai_dish?: string | null
+  /** The portion the AI assumed, e.g. "1 packet (~250 g)". */
+  ai_portion?: string | null
+  /** The AI's reasoning for the estimate. */
+  ai_justification?: string | null
+  /** How sure the AI was about the identification. */
+  ai_confidence?: "low" | "medium" | "high" | null
+  /** The user's correction, e.g. "no this is nasi ayam". */
+  user_correction?: string | null
+  /** Where the numbers came from. */
+  source?: "ai" | "corrected" | "manual" | null
+}
+
+export interface LoggedMeal {
+  /** Foods logged in this slot. A slot exists only when it holds at least one. */
+  foods: LoggedFoodItem[]
+  /** Sum of `foods`. Derived by `buildLoggedMeal` so it can never drift. */
   calories: number
   protein_g: number
   carbs_g: number

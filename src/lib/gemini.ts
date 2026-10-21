@@ -87,10 +87,6 @@ async function requestParts<T>(model: string, parts: GeminiPart[]): Promise<T> {
   return extractJSON<T>(text)
 }
 
-async function requestModel<T>(model: string, prompt: string): Promise<T> {
-  return requestParts<T>(model, [{ text: prompt }])
-}
-
 async function callGeminiParts<T>(parts: GeminiPart[]): Promise<T> {
   if (!GEMINI_API_KEY) {
     throw new Error("Gemini API key missing. Add VITE_GEMINI_API_KEY to .env")
@@ -252,14 +248,154 @@ async function downscaleImage(
   return canvas.toDataURL("image/jpeg", quality)
 }
 
+/** One food the AI recognised in the photo, with the reasoning behind it. */
+export interface MealEstimateItem {
+  /** Short dish name, e.g. "Nasi lemak". */
+  name: string
+  /** The portion the estimate is based on, e.g. "1 packet (~250 g)". */
+  portion: string
+  calories: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  /** What the AI sees, the portion it assumed, and how it got the number. */
+  justification: string
+  confidence: "low" | "medium" | "high"
+}
+
+export interface MealEstimate {
+  /** One sentence about the meal as a whole. */
+  summary: string
+  items: MealEstimateItem[]
+}
+
 export interface MealPhotoInput {
   description: string
   imageDataUrl?: string
+  /** The user says the AI got the food wrong, e.g. "no this is nasi ayam". */
+  correction?: string
+}
+
+const MEAL_PROMPT = `You are a nutrition assistant who knows Malaysian and Singaporean food: hawker centres, kopitiams, mamaks, and home cooking.
+
+Identify every food and drink in the photo (or from the description) and estimate the nutrition for one serving of each, the way it is normally served here.
+
+Portion guide:
+- A nasi lemak, nasi ayam, or nasi kandar packet is one packet (~200-300 g with rice).
+- Bihun goreng, mee goreng, char kway teow, and fried bee hoon are one plate (~400-600 g).
+- Roti canai and roti tisu are one piece.
+- A teh tarik is one cup (~250 ml, sweet, about 90 kcal). Teh o and kopi o kosong are about 30-50 kcal a cup.
+- Sayur, sambal, and a boiled egg are part of the dish unless the photo clearly separates them.
+
+Rules:
+- One item per distinct food or drink. A nasi lemak with anchovies and egg is ONE item, not three.
+- If the description names the food, trust it over the photo.
+- Calories are for the whole portion shown, not per 100 g.
+- Be honest about uncertainty: use "low" confidence for anything you cannot clearly see.
+
+Return a JSON object:
+{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high"}]}`
+
+function buildMealPrompt(input: {
+  description: string
+  photoAttached: boolean
+  correction: string
+}): string {
+  const sections = [MEAL_PROMPT]
+  if (input.description) {
+    sections.push(`The user says this is: ${input.description}`)
+  } else if (input.photoAttached) {
+    sections.push("No description was given, so read the photo.")
+  } else {
+    sections.push("No description and no photo were given.")
+  }
+  if (input.correction) {
+    sections.push(
+      `The user says a previous identification was wrong. Their correction: "${input.correction}". The correction overrides the description and the photo, so treat it as the truth about what the food is and estimate again.`,
+    )
+  }
+  return sections.join("\n\n")
+}
+
+function asText(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value.trim() : fallback
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function asConfidence(value: unknown): MealEstimateItem["confidence"] {
+  const text = asText(value).toLowerCase()
+  return text === "low" || text === "high" ? text : "medium"
+}
+
+interface RawEstimateItem {
+  name?: unknown
+  portion?: unknown
+  calories?: unknown
+  protein_g?: unknown
+  carbs_g?: unknown
+  fat_g?: unknown
+  justification?: unknown
+  confidence?: unknown
+}
+
+function parseEstimateItem(
+  raw: RawEstimateItem,
+  fallbackName: string,
+): MealEstimateItem {
+  const name = asText(raw.name, fallbackName) || fallbackName
+  const calories = Math.round(asNumber(raw.calories))
+  return {
+    name,
+    portion: asText(raw.portion),
+    calories,
+    protein_g: asNumber(raw.protein_g),
+    carbs_g: asNumber(raw.carbs_g),
+    fat_g: asNumber(raw.fat_g),
+    justification:
+      asText(raw.justification) ||
+      `Estimated about ${calories} kcal for one ${name.toLowerCase()}.`,
+    confidence: asConfidence(raw.confidence),
+  }
+}
+
+interface RawEstimate {
+  summary?: unknown
+  items?: unknown
+}
+
+/**
+ * Turns whatever the model returned into a list of foods. The model usually
+ * answers with `items`, but a flat answer is accepted too so a single dish
+ * still comes through.
+ */
+export function parseMealEstimate(
+  raw: unknown,
+  fallbackName = "Logged meal",
+): MealEstimate {
+  const source = (raw ?? {}) as RawEstimate
+  const rawItems = Array.isArray(source.items) ? source.items : []
+  const items = rawItems
+    .filter(
+      (entry): entry is RawEstimateItem =>
+        typeof entry === "object" && entry !== null,
+    )
+    .map((entry) => parseEstimateItem(entry, fallbackName))
+  if (items.length) {
+    return { summary: asText(source.summary), items }
+  }
+  const flat = parseEstimateItem(source as RawEstimateItem, fallbackName)
+  if (flat.calories > 0)
+    return { summary: asText(source.summary), items: [flat] }
+  return { summary: asText(source.summary), items: [] }
 }
 
 export async function estimateMealFromPhoto(
   input: MealPhotoInput,
-): Promise<NutritionInfo> {
+): Promise<MealEstimate> {
   const parts: GeminiPart[] = []
   let photoAttached = false
   if (input.imageDataUrl) {
@@ -273,27 +409,14 @@ export async function estimateMealFromPhoto(
       // Fall back to a text-only estimate if the image can't be processed.
     }
   }
-  const description = input.description.trim()
+  const correction = input.correction?.trim() ?? ""
   parts.push({
-    text: `
-You are a nutrition assistant. Estimate the nutritional values for this food, per single serving.
-${
-  description
-    ? `Food: ${description}`
-    : photoAttached
-      ? "Food: (shown in the attached photo)"
-      : "Food: (unknown)"
-}
-${photoAttached ? "Identify the dish and portion from the attached photo." : ""}
-Return a JSON object with only these numeric keys:
-{"calories": <number in kcal>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>}
-`.trim(),
+    text: buildMealPrompt({
+      description: input.description.trim(),
+      photoAttached,
+      correction,
+    }),
   })
-  const result = await callGeminiParts<Partial<NutritionInfo>>(parts)
-  return {
-    calories: Math.max(0, Math.round(Number(result.calories) || 0)),
-    protein_g: Math.max(0, Number(result.protein_g) || 0),
-    carbs_g: Math.max(0, Number(result.carbs_g) || 0),
-    fat_g: Math.max(0, Number(result.fat_g) || 0),
-  }
+  const raw = await callGeminiParts<unknown>(parts)
+  return parseMealEstimate(raw, input.description.trim() || "Logged meal")
 }
