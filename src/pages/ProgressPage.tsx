@@ -21,11 +21,7 @@ import {
 import { entriesForDate, totalsForDate } from "../lib/mealLog"
 import { useMealLog } from "../context/MealLogContext"
 import type { Activity, ActivityType, ISODate, UserProfile } from "../lib/types"
-import {
-  ACTIVITY_ICONS,
-  ACTIVITY_LABELS,
-  activityDisplayLabel,
-} from "../lib/activityMeta"
+import { ACTIVITY_ICONS, activityDisplayLabel } from "../lib/activityMeta"
 import { buildDemoActivities, demoProfile } from "../lib/demo"
 import {
   estimateForActivity,
@@ -243,15 +239,29 @@ export default function ProgressPage() {
     )
     .reduce((s, a) => s + a.duration_min, 0)
 
-  const minutesByType = new Map<ActivityType, number>()
+  const minutesByActivity = new Map<string, {
+    label: string
+    type: ActivityType
+    minutes: number
+  }>()
   for (const a of activities) {
     if (a.status !== "completed") continue
-    minutesByType.set(
-      a.activity_type,
-      (minutesByType.get(a.activity_type) ?? 0) + a.duration_min,
-    )
+    const label = activityDisplayLabel(a)
+    const key = label.toLowerCase()
+    const entry = minutesByActivity.get(key)
+    if (entry) {
+      entry.minutes += a.duration_min
+    } else {
+      minutesByActivity.set(key, {
+        label,
+        type: a.activity_type,
+        minutes: a.duration_min,
+      })
+    }
   }
-  const typeBreakdown = [...minutesByType].sort((a, b) => b[1] - a[1])
+  const activityBreakdown = [...minutesByActivity.values()].sort(
+    (a, b) => b.minutes - a.minutes,
+  )
 
   const recent = [...activities]
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -543,18 +553,18 @@ export default function ProgressPage() {
                 </p>
               )}
 
-              {typeBreakdown.length > 0 && (
+              {activityBreakdown.length > 0 && (
                 <div className="mt-4 space-y-2 border-t border-border pt-4">
-                  {typeBreakdown.map(([type, minutes]) => {
+                  {activityBreakdown.map(({ label, type, minutes }) => {
                     const Icon = ACTIVITY_ICONS[type]
                     return (
                       <div
-                        key={type}
+                        key={`${type}:${label.toLowerCase()}`}
                         className="flex items-center gap-2.5 text-sm"
                       >
                         <Icon size={15} className="shrink-0 text-secondary" />
-                        <span className="flex-1 text-foreground">
-                          {ACTIVITY_LABELS[type]}
+                        <span className="min-w-0 flex-1 truncate text-foreground">
+                          {label}
                         </span>
                         <span className="tabular text-xs text-muted-foreground">
                           {minutes} min

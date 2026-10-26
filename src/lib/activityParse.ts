@@ -51,31 +51,100 @@ interface NamePattern {
 const NAME_PATTERNS: NamePattern[] = [
   { re: /\b(table tennis|ping[- ]?pong)\b/i, name: "Table tennis" },
   { re: /\b(open[- ]water swim(ming)?)\b/i, name: "Open-water swim" },
+  { re: /\b(aqua aerobics|water aerobics)\b/i, name: "Aqua aerobics" },
+  { re: /\b(reformer pilates|mat pilates)\b/i, name: "Pilates" },
   {
-    re: /\b(strength train(ing)?|weight train(ing)?)\b/i,
+    re: /\b(strength train(ing)?|weight train(ing)?|angkat berat)\b/i,
     name: "Strength training",
   },
-  { re: /\b(hike|hiking|trek|trekking)\b/i, name: "Hiking" },
-  { re: /\b(walk|walked|walking|stroll)\b/i, name: "Walking" },
-  { re: /\b(run|ran|running|jog|jogging)\b/i, name: "Running" },
-  { re: /\b(cycl(e|ing)|bike|biking|ride|riding)\b/i, name: "Cycling" },
-  { re: /\b(swim|swam|swimming)\b/i, name: "Swimming" },
+  {
+    re: /\b(hiit|high[- ]intensity interval training)\b/i,
+    name: "HIIT",
+  },
+  {
+    re: /\b(circuit train(ing)?|circuit class)\b/i,
+    name: "Circuit training",
+  },
+  { re: /\b(boot ?camp)\b/i, name: "Bootcamp" },
+  { re: /\b(crossfit)\b/i, name: "CrossFit" },
+  {
+    re: /\b(calisthenics|bodyweight workout)\b/i,
+    name: "Calisthenics",
+  },
+  {
+    re: /\b(rock climbing|bouldering|indoor climbing)\b/i,
+    name: "Rock climbing",
+  },
+  { re: /\b(kayak(ing)?)\b/i, name: "Kayaking" },
+  { re: /\b(paddle ?board(ing)?)\b/i, name: "Paddleboarding" },
+  { re: /\b(snowboard(ing)?)\b/i, name: "Snowboarding" },
+  { re: /\b(ski(ing)?)\b/i, name: "Skiing" },
+  {
+    re: /\b(rollerblad(e|ing)|roller skat(ing|e))\b/i,
+    name: "Rollerblading",
+  },
+  { re: /\b(skateboard(ing)?)\b/i, name: "Skateboarding" },
+  { re: /\b(skat(ing|e))\b/i, name: "Skating" },
+  {
+    re: /\b(stair climbing|stairmaster|stair master)\b/i,
+    name: "Stair climbing",
+  },
+  { re: /\b(muay thai)\b/i, name: "Muay Thai" },
+  { re: /\b(kickboxing)\b/i, name: "Kickboxing" },
+  { re: /\b(boxing|tinju)\b/i, name: "Boxing" },
+  { re: /\b(martial arts?)\b/i, name: "Martial arts" },
+  { re: /\b(futsal)\b/i, name: "Futsal" },
+  { re: /\b(netball)\b/i, name: "Netball" },
+  { re: /\b(padel)\b/i, name: "Padel" },
+  { re: /\b(cricket)\b/i, name: "Cricket" },
+  { re: /\b(golf)\b/i, name: "Golf" },
+  { re: /\b(hockey)\b/i, name: "Hockey" },
+  { re: /\b(rugby)\b/i, name: "Rugby" },
+  { re: /\b(baseball)\b/i, name: "Baseball" },
+  { re: /\b(archery|memanah)\b/i, name: "Archery" },
+  { re: /\b(barre)\b/i, name: "Barre" },
+  { re: /\b(tai chi|taichi)\b/i, name: "Tai chi" },
+  { re: /\b(hike|hiking|trek|trekking|mendaki)\b/i, name: "Hiking" },
+  { re: /\b(walk|walked|walking|stroll|berjalan)\b/i, name: "Walking" },
+  { re: /\b(run|ran|running|jog|jogging|berlari|lari)\b/i, name: "Running" },
+  {
+    re: /\b(cycl(e|ing)|bike|biking|ride|riding|berbasikal)\b/i,
+    name: "Cycling",
+  },
+  { re: /\b(swim|swam|swimming|berenang)\b/i, name: "Swimming" },
   { re: /\b(gym|strength|weights?|lift(ing)?)\b/i, name: "Gym session" },
   { re: /\b(badminton)\b/i, name: "Badminton" },
   { re: /\b(tennis)\b/i, name: "Tennis" },
   { re: /\b(squash)\b/i, name: "Squash" },
-  { re: /\b(row(ing)?|erg(ometer)?)\b/i, name: "Rowing" },
-  { re: /\b(football|soccer)\b/i, name: "Football" },
-  { re: /\b(basketball)\b/i, name: "Basketball" },
-  { re: /\b(volleyball)\b/i, name: "Volleyball" },
+  {
+    re: /\b(row(ing)?|erg(ometer)?|mendayung)\b/i,
+    name: "Rowing",
+  },
+  { re: /\b(football|soccer|bola sepak)\b/i, name: "Football" },
+  { re: /\b(basketball|bola keranjang)\b/i, name: "Basketball" },
+  { re: /\b(volleyball|bola tampar)\b/i, name: "Volleyball" },
   { re: /\b(yoga)\b/i, name: "Yoga" },
   { re: /\b(pilates)\b/i, name: "Pilates" },
-  { re: /\b(danc(e|ing)|zumba|aerobics)\b/i, name: "Dancing" },
-  { re: /\b(stretch(ing)?|mobility)\b/i, name: "Stretching" },
+  {
+    re: /\b(danc(e|ing)|zumba|aerobics|aerobik|menari)\b/i,
+    name: "Dancing",
+  },
+  {
+    re: /\b(stretch(ing)?|mobility|regangan)\b/i,
+    name: "Stretching",
+  },
   { re: /\b(skip(ping)? rope|jump rope)\b/i, name: "Skipping rope" },
   { re: /\b(elliptical|cross trainer)\b/i, name: "Elliptical" },
+  { re: /\b(senaman)\b/i, name: "Workout" },
   { re: /\b(swim|swimming) (pool|session)\b/i, name: "Swimming" },
 ]
+
+/** True when the text names one of the activities this parser recognises. */
+export function isKnownActivityName(text: string): boolean {
+  const value = text.trim()
+  if (!value) return false
+  return NAME_PATTERNS.some((pattern) => pattern.re.test(value))
+}
 
 /* ── Intensity detection ─────────────────────────────────────────────── */
 

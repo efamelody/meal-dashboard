@@ -42,49 +42,159 @@ const MET_BY_NAME: Array<{
   band: MetBand
 }> = [
   {
-    re: /\b(yoga|pilates|stretch|mobility|tai chi)\b/i,
-    label: "yoga-style sessions",
+    re: /\b(aqua aerobics|water aerobics)\b/i,
+    label: "aqua aerobics",
+    band: { easy: 4.0, moderate: 5.5, vigorous: 7.0 },
+  },
+  {
+    re: /\b(yoga)\b/i,
+    label: "yoga",
     band: { easy: 2.0, moderate: 2.5, vigorous: 3.5 },
   },
   {
-    re: /\b(hike|hiking|trek)\b/i,
+    re: /\b(pilates|reformer)\b/i,
+    label: "pilates",
+    band: { easy: 2.0, moderate: 3.0, vigorous: 4.0 },
+  },
+  {
+    re: /\b(stretch|stretching|mobility|regangan)\b/i,
+    label: "stretching and mobility",
+    band: { easy: 1.8, moderate: 2.3, vigorous: 3.0 },
+  },
+  {
+    re: /\b(tai chi|taichi)\b/i,
+    label: "tai chi",
+    band: { easy: 2.0, moderate: 3.0, vigorous: 4.0 },
+  },
+  {
+    re: /\b(barre)\b/i,
+    label: "barre",
+    band: { easy: 2.5, moderate: 3.5, vigorous: 5.0 },
+  },
+  {
+    re: /\b(hike|hiking|trek|trekking|mendaki)\b/i,
     label: "hiking",
     band: { easy: 3.5, moderate: 5.0, vigorous: 6.5 },
   },
   {
-    re: /\b(swim|swimming|water aerobics)\b/i,
+    re: /\b(swim|swimming|swam|open[- ]water swim|berenang)\b/i,
     label: "swimming",
     band: { easy: 4.5, moderate: 6.5, vigorous: 8.5 },
   },
   {
-    re: /\b(walk|walking)\b/i,
+    re: /\b(walk|walking|walked|stroll|berjalan)\b/i,
     label: "walking",
     band: MET_BY_CATEGORY.walking,
   },
   {
-    re: /\b(run|running|jog|jogging)\b/i,
+    re: /\b(run|running|ran|jog|jogging|berlari|lari)\b/i,
     label: "running",
     band: MET_BY_CATEGORY.running,
   },
   {
-    re: /\b(cycl|bike|ride)\b/i,
+    re: /\b(cycl|cycling|bike|biking|ride|riding|berbasikal)\b/i,
     label: "cycling",
     band: MET_BY_CATEGORY.cycling,
   },
   {
-    re: /\b(gym|strength|weights|lift)\b/i,
+    re: /\b(gym|strength|weights?|lifting|lift|calisthenics|bodyweight|angkat berat)\b/i,
     label: "strength training",
     band: MET_BY_CATEGORY.strength,
   },
   {
-    re: /\b(danc|zumba|aerobics)\b/i,
+    re: /\b(danc|dancing|zumba|aerobics|aerobik|menari)\b/i,
     label: "dancing",
     band: { easy: 3.0, moderate: 4.5, vigorous: 7.0 },
   },
   {
-    re: /\b(tennis|badminton|squash|padel|football|soccer|basketball|volleyball)\b/i,
-    label: "racquet and team sports",
+    re: /\b(tennis|badminton|squash|padel|table tennis)\b/i,
+    label: "racquet sports",
     band: { easy: 4.5, moderate: 6.5, vigorous: 8.5 },
+  },
+  {
+    re: /\b(volleyball|bola tampar)\b/i,
+    label: "volleyball",
+    band: { easy: 3.5, moderate: 5.0, vigorous: 7.0 },
+  },
+  {
+    re: /\b(football|soccer|futsal|basketball|netball|rugby|hockey|baseball|bola sepak|bola keranjang)\b/i,
+    label: "team sports",
+    band: { easy: 4.5, moderate: 6.5, vigorous: 8.5 },
+  },
+  {
+    re: /\b(golf)\b/i,
+    label: "golf",
+    band: { easy: 2.5, moderate: 3.5, vigorous: 4.5 },
+  },
+  {
+    re: /\b(cricket)\b/i,
+    label: "cricket",
+    band: { easy: 3.0, moderate: 4.5, vigorous: 6.0 },
+  },
+  {
+    re: /\b(row|rowing|erg|ergometer|mendayung)\b/i,
+    label: "rowing",
+    band: { easy: 4.5, moderate: 7.0, vigorous: 9.0 },
+  },
+  {
+    re: /\b(elliptical|cross trainer)\b/i,
+    label: "elliptical training",
+    band: { easy: 4.0, moderate: 5.5, vigorous: 7.0 },
+  },
+  {
+    re: /\b(skip|skipping|jump) rope\b/i,
+    label: "skipping rope",
+    band: { easy: 8.0, moderate: 10.0, vigorous: 12.0 },
+  },
+  {
+    re: /\b(hiit|high[- ]intensity interval|tabata)\b/i,
+    label: "HIIT",
+    band: { easy: 6.0, moderate: 8.0, vigorous: 10.0 },
+  },
+  {
+    re: /\b(circuit|boot ?camp|crossfit)\b/i,
+    label: "circuit training",
+    band: { easy: 5.0, moderate: 7.5, vigorous: 10.0 },
+  },
+  {
+    re: /\b(boxing|kickboxing|martial arts?|muay thai|tinju)\b/i,
+    label: "boxing and martial arts",
+    band: { easy: 5.0, moderate: 7.0, vigorous: 9.5 },
+  },
+  {
+    re: /\b(rock climbing|bouldering|indoor climbing)\b/i,
+    label: "rock climbing",
+    band: { easy: 5.0, moderate: 7.0, vigorous: 9.0 },
+  },
+  {
+    re: /\b(kayak|kayaking|paddle ?board|paddleboarding)\b/i,
+    label: "paddling",
+    band: { easy: 3.0, moderate: 5.0, vigorous: 7.0 },
+  },
+  {
+    re: /\b(ski|skiing|snowboard|snowboarding)\b/i,
+    label: "snow sports",
+    band: { easy: 4.5, moderate: 6.0, vigorous: 8.0 },
+  },
+  {
+    re: /\b(skat|skating|skate|skateboarding|rollerblad|rollerblading)\b/i,
+    label: "skating",
+    band: { easy: 4.0, moderate: 6.0, vigorous: 8.0 },
+  },
+  {
+    re: /\b(stair climbing|stairmaster|stair master)\b/i,
+    label: "stair climbing",
+    band: { easy: 4.0, moderate: 6.0, vigorous: 8.0 },
+  },
+  {
+    re: /\b(archery|memanah)\b/i,
+    label: "archery",
+    band: { easy: 2.5, moderate: 3.5, vigorous: 4.5 },
+  },
+  {
+    re: /\b(cardio|workout|senaman)\b/i,
+    label: "general cardio",
+    band: { easy: 4.0, moderate: 6.0, vigorous: 8.0 },
   },
 ]
 
@@ -105,7 +215,10 @@ export function metBandFor(
   const key = category ?? "other"
   return {
     band: MET_BY_CATEGORY[key],
-    label: `activities in the "${key}" group`,
+    label:
+      key === "other"
+        ? "general activity"
+        : `general ${ACTIVITY_LABELS[key].toLowerCase()} range`,
   }
 }
 

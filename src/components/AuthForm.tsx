@@ -12,8 +12,12 @@ function isRateLimitError(err: unknown): boolean {
   return message.includes("rate limit") || message.includes("too many requests")
 }
 
-export default function AuthForm() {
-  const [mode, setMode] = useState<"signin" | "signup">("signin")
+export default function AuthForm({
+  initialMode = "signin",
+}: {
+  initialMode?: "signin" | "signup"
+}) {
+  const [mode, setMode] = useState<"signin" | "signup">(initialMode)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -92,7 +96,9 @@ export default function AuthForm() {
     setOauthLoading(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/login` },
+      options: {
+        redirectTo: `${window.location.origin}${window.location.pathname}`,
+      },
     })
     if (error) {
       setError(error.message)
@@ -105,7 +111,7 @@ export default function AuthForm() {
 
   return (
     <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-6 sm:p-8">
-      <h2 className="text-xl text-[var(--foreground)] mb-1">
+      <h2 className="font-display text-2xl text-[var(--foreground)] mb-1">
         {mode === "signin" ? "Welcome back" : "Create your account"}
       </h2>
       <p className="text-xs text-[var(--muted-foreground)] mb-6">

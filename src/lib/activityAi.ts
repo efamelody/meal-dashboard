@@ -14,7 +14,7 @@ import { parseActivityDescription, type ActivityDraft } from "./activityParse"
 import {
   ACTIVITY_TYPES,
   INTENSITIES,
-  activityDisplayLabel,
+  normalizeActivityName,
 } from "./activityMeta"
 import { isISODate } from "./dates"
 import type { ActivityType, Intensity, ISODate } from "./types"
@@ -105,7 +105,7 @@ Description:
 
 Return JSON with exactly these keys:
 {
-  "name": "<specific activity name as they described it, e.g. Swimming, Badminton, Hiking, or null if not stated>",
+  "name": "<the specific activity as stated, e.g. Reformer Pilates, Open-water swim, Futsal, or null if no specific activity is named — never a category word>",
   "category": "<one of: walking, running, cycling, strength, sports, other, or null>",
   "duration_min": <total minutes as a number, or null if no duration was stated>,
   "distance_km": <distance in kilometres as a number, or null if not stated>,
@@ -117,6 +117,7 @@ Return JSON with exactly these keys:
 }
 
 Rules:
+- "name" is the activity itself, not its bucket. Never answer "Sports", "Other", "Exercise", "Activity", or "Training" for name; use null instead.
 - Never estimate or invent. If something is not stated, return null (intensity defaults to "unknown").
 - Convert any duration phrasing ("two hours", "40 mins") into minutes.
 - "this morning" maps to time 08:00, "this afternoon" 14:00, "this evening" 18:00, "tonight" 20:00, with date today; "yesterday" sets date to yesterday.
@@ -144,12 +145,16 @@ export async function interpretActivityDescription(
       callGeminiJSON<AiDraft>(promptFor(description)),
       AI_TIMEOUT_MS,
     )
-    const aiName = text(raw?.name, 60)
+    const aiNameRaw = text(raw?.name, 60)
+    const aiName = aiNameRaw ? normalizeActivityName(aiNameRaw) : null
     const aiCategory = category(raw?.category)
     const aiIntensity = intensity(raw?.intensity)
     const aiDetails = text(raw?.details)
     const aiNotes = text(raw?.notes)
 
+    // The specific name always wins. A missing or bucket-only AI name falls
+    // back to the rule parser, and if that has nothing specific either the
+    // form leaves the field empty instead of inventing "Sports"/"Other".
     const name = aiName ?? local.name
     const draft: ActivityDraft = {
       name,
@@ -165,15 +170,6 @@ export async function interpretActivityDescription(
       notes: aiNotes ?? local.notes,
       date: isoDate(raw?.date) ?? local.date,
       time: clockTime(raw?.time) ?? local.time,
-    }
-
-    // The model may still leave the name blank for unusual phrasing — the
-    // local parser keeps a best-effort label so the form is never empty.
-    if (!draft.name && draft.category) {
-      draft.name = activityDisplayLabel({
-        activity_type: draft.category,
-        name: null,
-      })
     }
 
     return { draft, source: "ai" }

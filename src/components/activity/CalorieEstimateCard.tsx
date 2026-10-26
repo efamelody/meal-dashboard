@@ -135,7 +135,7 @@ export default function CalorieEstimateCard({
             <DataRow label="You said">
               {provided.length ? provided.join(" · ") : "Nothing yet"}
             </DataRow>
-            <DataRow label="Inferred">
+            <DataRow label="Basis">
               {inferred.length ? (
                 inferred.join(" · ")
               ) : (

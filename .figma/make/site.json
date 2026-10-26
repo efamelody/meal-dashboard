@@ -1,5 +1,6 @@
 {
-  "description": "Plan your weekly meals effortlessly with a dynamic meal planner and smart grocery list generator, tailored for users seeking healthy eating and organization.",
+  "title": "MealKit — Meal Planner",
+  "description": "Plan your week, build a grocery list, and hit your nutrition goals — all in one calm, mobile-first meal planner.",
   "robots": {
     "index": false
   },

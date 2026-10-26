@@ -3,6 +3,8 @@
 // which bypasses RLS. Function signatures are unchanged so pages don't care.
 import { supabase, getUserId } from "./supabase"
 import { addDays, startOfWeek } from "./dates"
+import { normalizeActivityName } from "./activityMeta"
+import { isKnownActivityName } from "./activityParse"
 import type {
   Meal,
   MealIngredient,
@@ -18,6 +20,7 @@ import type {
   DayCalories,
   MacroTotals,
   ISODate,
+  Intensity,
   AppProfile,
   FriendRow,
   Friendship,
@@ -25,6 +28,10 @@ import type {
   FeedPost,
   PostKind,
   PostSnapshot,
+  ActivityPlan,
+  PlanParticipant,
+  PlanComment,
+  RsvpStatus,
 } from "./types"
 import { STAPLE_ITEMS } from "./staples"
 
@@ -636,7 +643,79 @@ export async function saveUserProfile(
 
 // ── Activity ─────────────────────────────────────────────────────────────
 
+interface LegacyActivityNotes {
+  name: string | null
+  distanceKm: number | null
+  intensity: Intensity | null
+  notes: string | null
+}
+
+/**
+ * Recover fields that addActivity folded into `notes` while migration 006 was
+ * missing. Only unpacks the exact "Name · 5 km · moderate" layout, and only
+ * when the first segment looks like an activity name (not a free-form note).
+ */
+function unpackLegacyActivityNotes(rawNotes: unknown): LegacyActivityNotes {
+  const notes = typeof rawNotes === "string" ? rawNotes : ""
+  if (!notes.trim()) {
+    return { name: null, distanceKm: null, intensity: null, notes: null }
+  }
+
+  const [firstLine, ...rest] = notes.split(/\r?\n/)
+  const parts = firstLine.split(/\s+·\s+/)
+  const candidate = parts[0]?.trim() ?? ""
+
+  let distanceKm: number | null = null
+  let intensity: Intensity | null = null
+  for (const part of parts.slice(1)) {
+    const value = part.trim()
+    const distanceMatch = /^(\d+(?:[.,]\d+)?)\s*km$/i.exec(value)
+    if (distanceMatch) {
+      const parsed = Number.parseFloat(distanceMatch[1].replace(",", "."))
+      if (Number.isFinite(parsed) && parsed >= 0) distanceKm = parsed
+      continue
+    }
+    const lower = value.toLowerCase()
+    if (lower === "easy" || lower === "moderate" || lower === "vigorous") {
+      intensity = lower
+    }
+  }
+
+  const candidateIsValue =
+    /^\d+(?:[.,]\d+)?\s*km$/i.test(candidate) ||
+    ["easy", "moderate", "vigorous", "unknown"].includes(
+      candidate.toLowerCase(),
+    )
+  const looksLikeSentence =
+    /^(i|we|my|our|the|a|an)\b/i.test(candidate) || /[.!?]$/.test(candidate)
+  const name =
+    candidateIsValue || looksLikeSentence
+      ? null
+      : normalizeActivityName(candidate)
+  const hasStructuredValue = distanceKm != null || intensity != null
+
+  if (!name || (!isKnownActivityName(candidate) && !hasStructuredValue)) {
+    return { name: null, distanceKm: null, intensity: null, notes }
+  }
+
+  return {
+    name,
+    distanceKm,
+    intensity,
+    notes: rest.join("\n").trim() || null,
+  }
+}
+
 function mapActivity(row: any): Activity {
+  const rawName = typeof row.name === "string" ? row.name.trim() : ""
+  const storedName = rawName ? normalizeActivityName(rawName) : null
+  const legacy = storedName ? null : unpackLegacyActivityNotes(row.notes)
+  const hasStoredExtras =
+    storedName != null ||
+    row.distance_km != null ||
+    row.intensity != null ||
+    row.details != null
+
   return {
     id: row.id,
     user_id: row.user_id,
@@ -645,11 +724,14 @@ function mapActivity(row: any): Activity {
     duration_min: Number(row.duration_min),
     status: row.status,
     scheduled_time: row.scheduled_time ?? null,
-    notes: row.notes ?? null,
-    // Added by migration 006; undefined on rows written before it ran.
-    name: row.name ?? null,
-    distance_km: row.distance_km != null ? Number(row.distance_km) : null,
-    intensity: row.intensity ?? null,
+    notes: hasStoredExtras ? (row.notes ?? null) : (legacy?.notes ?? null),
+    // Added by migration 006; packed into notes when it was missing.
+    name: storedName ?? legacy?.name ?? null,
+    distance_km:
+      row.distance_km != null
+        ? Number(row.distance_km)
+        : (legacy?.distanceKm ?? null),
+    intensity: row.intensity ?? legacy?.intensity ?? null,
     details: row.details ?? null,
     shared_at: row.shared_at ?? null,
   }
@@ -1005,6 +1087,8 @@ function mapFeedPost(
 
     kind: row.kind as PostKind,
 
+    description: row.description ?? "",
+
     content: row.content ?? "",
 
     snapshot: row.snapshot ?? {},
@@ -1147,6 +1231,27 @@ export async function searchAppProfiles(query: string): Promise<AppProfile[]> {
   return (data ?? []).map(mapAppProfile)
 }
 
+/** Exact handle lookup (case-insensitive) for the "add a friend" box. */
+export async function getAppProfileByHandle(
+  handle: string,
+): Promise<AppProfile | null> {
+  const userId = await getUserId()
+  const clean = handle.trim().toLowerCase().replace(/^@/, "")
+  if (!clean) return null
+
+  const { data, error } = await supabase
+    .from("app_profiles")
+    .select("*")
+    .eq("handle", clean)
+    .neq("id", userId)
+    .maybeSingle()
+  if (error) {
+    console.error("getAppProfileByHandle:", error.message)
+    return null
+  }
+  return data ? mapAppProfile(data) : null
+}
+
 async function fetchFriendshipRows(): Promise<Friendship[]> {
   const userId = await getUserId()
 
@@ -1269,6 +1374,21 @@ export async function getFriendships(): Promise<{
   }
 }
 
+/** Number of pending incoming requests (for the Community nav badge). */
+export async function getIncomingRequestCount(): Promise<number> {
+  const userId = await getUserId()
+  const { count, error } = await supabase
+    .from("friendships")
+    .select("id", { count: "exact", head: true })
+    .eq("addressee_id", userId)
+    .eq("status", "pending")
+  if (error) {
+    console.error("getIncomingRequestCount:", error.message)
+    return 0
+  }
+  return count ?? 0
+}
+
 export async function sendFriendRequest(targetId: string): Promise<void> {
   const userId = await getUserId()
 
@@ -1378,6 +1498,8 @@ export async function getFeed(): Promise<FeedPost[]> {
 export async function createPost(post: {
   kind: PostKind
 
+  description: string
+
   content: string
 
   snapshot: PostSnapshot
@@ -1388,6 +1510,8 @@ export async function createPost(post: {
     author_id: userId,
 
     kind: post.kind,
+
+    description: post.description,
 
     content: post.content,
 
@@ -1496,4 +1620,299 @@ export async function getPostComments(postId: string): Promise<FeedComment[]> {
       bio: "",
     },
   }))
+}
+
+/* ── Group activity plans ─────────────────────────────────────────────── */
+
+function mapPlanParticipant(
+  row: any,
+  profiles: Map<string, AppProfile>,
+): PlanParticipant {
+  return {
+    id: row.id,
+    plan_id: row.plan_id,
+    user_id: row.user_id,
+    rsvp: row.rsvp as RsvpStatus,
+    activity_id: row.activity_id ?? null,
+    profile: profiles.get(row.user_id) ?? {
+      id: row.user_id,
+      display_name: "",
+      handle: "member",
+      bio: "",
+    },
+  }
+}
+
+/** Plans I created or was invited to, soonest first, with full participants. */
+export async function getPlans(): Promise<ActivityPlan[]> {
+  const userId = await getUserId()
+
+  const { data: myParts, error: myErr } = await supabase
+    .from("plan_participants")
+    .select("plan_id")
+    .eq("user_id", userId)
+  if (myErr) throw new Error(`getPlans: ${myErr.message}`)
+  const myPlanIds = new Set((myParts ?? []).map((p) => p.plan_id))
+
+  const { data: created, error: createdErr } = await supabase
+    .from("activity_plans")
+    .select("*")
+    .eq("creator_id", userId)
+  if (createdErr) throw new Error(`getPlans: ${createdErr.message}`)
+
+  const rows = created ?? []
+  const seen = new Set(rows.map((p) => p.id))
+  const missing = [...myPlanIds].filter((id) => !seen.has(id))
+
+  if (missing.length > 0) {
+    const { data: invited, error: invErr } = await supabase
+      .from("activity_plans")
+      .select("*")
+      .in("id", missing)
+    if (invErr) throw new Error(`getPlans: ${invErr.message}`)
+    rows.push(...(invited ?? []))
+  }
+
+  rows.sort(
+    (a, b) =>
+      a.plan_date.localeCompare(b.plan_date) ||
+      (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+  )
+
+  if (rows.length === 0) return []
+
+  const planIds = rows.map((p) => p.id)
+  const { data: participants, error: pErr } = await supabase
+    .from("plan_participants")
+    .select("*")
+    .in("plan_id", planIds)
+  if (pErr) throw new Error(`getPlans: ${pErr.message}`)
+
+  const userIds = new Set<string>()
+  for (const row of rows) userIds.add(row.creator_id)
+  for (const row of participants ?? []) userIds.add(row.user_id)
+  const profiles = await attachProfiles([...userIds])
+
+  const byPlan = new Map<string, PlanParticipant[]>()
+  for (const row of participants ?? []) {
+    const list = byPlan.get(row.plan_id) ?? []
+    list.push(mapPlanParticipant(row, profiles))
+    byPlan.set(row.plan_id, list)
+  }
+
+  return rows.map((row) => {
+    const parts = byPlan.get(row.id) ?? []
+    const me = parts.find((p) => p.user_id === userId)
+    return {
+      id: row.id,
+      creator_id: row.creator_id,
+      title: row.title,
+      activity_type: row.activity_type ?? "other",
+      plan_date: row.plan_date,
+      plan_time: row.plan_time ?? null,
+      location: row.location ?? null,
+      details: row.details ?? null,
+      duration_min: row.duration_min ?? 60,
+      created_at: row.created_at,
+      creator: profiles.get(row.creator_id) ?? {
+        id: row.creator_id,
+        display_name: "",
+        handle: "member",
+        bio: "",
+      },
+      participants: parts,
+      myRsvp: me?.rsvp ?? "invited",
+    }
+  })
+}
+
+export interface CreatePlanInput {
+  title: string
+  activity_type: Activity["activity_type"]
+  plan_date: string
+  plan_time?: string | null
+  location?: string | null
+  details?: string | null
+  duration_min?: number
+}
+
+export async function createPlan(
+  input: CreatePlanInput,
+  inviteeIds: string[],
+): Promise<void> {
+  const userId = await getUserId()
+
+  const { data: plan, error } = await supabase
+    .from("activity_plans")
+    .insert({
+      creator_id: userId,
+      title: input.title,
+      activity_type: input.activity_type,
+      plan_date: input.plan_date,
+      plan_time: input.plan_time ?? null,
+      location: input.location ?? null,
+      details: input.details ?? null,
+      duration_min: input.duration_min ?? 60,
+    })
+    .select("id")
+    .single()
+  if (error) throw new Error(`createPlan: ${error.message}`)
+
+  const participantRows = [
+    { plan_id: plan.id, user_id: userId, rsvp: "going" },
+    ...inviteeIds.map((id) => ({
+      plan_id: plan.id,
+      user_id: id,
+      rsvp: "invited",
+    })),
+  ]
+
+  const { data: inserted, error: insErr } = await supabase
+    .from("plan_participants")
+    .insert(participantRows)
+    .select("id,user_id,rsvp")
+  if (insErr) throw new Error(`createPlan: ${insErr.message}`)
+
+  // The creator is automatically "going" — mirror the RSVP sync so the
+  // planned activity also lands in their own Activity log.
+  const creatorRow = (inserted ?? []).find((p) => p.user_id === userId)
+  if (creatorRow) {
+    try {
+      const act = await addActivity({
+        date: input.plan_date,
+        activity_type: input.activity_type,
+        duration_min: input.duration_min ?? 60,
+        status: "planned",
+        scheduled_time: input.plan_time ?? null,
+        notes: `Group plan: ${input.title}`,
+        name: input.title,
+      })
+      await supabase
+        .from("plan_participants")
+        .update({ activity_id: act.id })
+        .eq("id", creatorRow.id)
+    } catch (err) {
+      console.error("createPlan: activity sync failed", err)
+    }
+  }
+}
+
+export async function updatePlan(
+  id: string,
+  changes: Partial<CreatePlanInput>,
+): Promise<void> {
+  const patch: Record<string, unknown> = {}
+  if (changes.title !== undefined) patch.title = changes.title
+  if (changes.activity_type !== undefined)
+    patch.activity_type = changes.activity_type
+  if (changes.plan_date !== undefined) patch.plan_date = changes.plan_date
+  if (changes.plan_time !== undefined) patch.plan_time = changes.plan_time
+  if (changes.location !== undefined) patch.location = changes.location
+  if (changes.details !== undefined) patch.details = changes.details
+  if (changes.duration_min !== undefined)
+    patch.duration_min = changes.duration_min
+  if (Object.keys(patch).length === 0) return
+
+  const { error } = await supabase.from("activity_plans").update(patch).eq("id", id)
+  if (error) throw new Error(`updatePlan: ${error.message}`)
+}
+
+export async function deletePlan(id: string): Promise<void> {
+  const { error } = await supabase.from("activity_plans").delete().eq("id", id)
+  if (error) throw new Error(`deletePlan: ${error.message}`)
+}
+
+export async function inviteToPlan(
+  planId: string,
+  userIds: string[],
+): Promise<void> {
+  const rows = userIds.map((id) => ({
+    plan_id: planId,
+    user_id: id,
+    rsvp: "invited",
+  }))
+  const { error } = await supabase.from("plan_participants").upsert(rows, {
+    onConflict: "plan_id,user_id",
+    ignoreDuplicates: true,
+  })
+  if (error) throw new Error(`inviteToPlan: ${error.message}`)
+}
+
+/** Update my RSVP. Returns the updated participant row (with activity_id). */
+export async function setPlanRsvp(
+  planId: string,
+  rsvp: RsvpStatus,
+): Promise<PlanParticipant> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("plan_participants")
+    .update({ rsvp, updated_at: new Date().toISOString() })
+    .eq("plan_id", planId)
+    .eq("user_id", userId)
+    .select("*")
+    .single()
+  if (error) throw new Error(`setPlanRsvp: ${error.message}`)
+
+  const profiles = await attachProfiles([userId])
+  return mapPlanParticipant(data, profiles)
+}
+
+export async function setPlanParticipantActivity(
+  participantId: string,
+  activityId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("plan_participants")
+    .update({ activity_id: activityId, updated_at: new Date().toISOString() })
+    .eq("id", participantId)
+  if (error) throw new Error(`setPlanParticipantActivity: ${error.message}`)
+}
+
+export async function leavePlan(planId: string): Promise<void> {
+  const userId = await getUserId()
+  const { error } = await supabase
+    .from("plan_participants")
+    .delete()
+    .eq("plan_id", planId)
+    .eq("user_id", userId)
+  if (error) throw new Error(`leavePlan: ${error.message}`)
+}
+
+export async function getPlanComments(planId: string): Promise<PlanComment[]> {
+  const { data, error } = await supabase
+    .from("plan_comments")
+    .select("*")
+    .eq("plan_id", planId)
+    .order("created_at", { ascending: true })
+    .limit(100)
+  if (error) throw new Error(`getPlanComments: ${error.message}`)
+
+  const rows = data ?? []
+  const authors = await attachProfiles(rows.map((r) => r.author_id))
+  return rows.map((row) => ({
+    id: row.id,
+    plan_id: row.plan_id,
+    author_id: row.author_id,
+    content: row.content,
+    created_at: row.created_at,
+    author: authors.get(row.author_id) ?? {
+      id: row.author_id,
+      display_name: "",
+      handle: "member",
+      bio: "",
+    },
+  }))
+}
+
+export async function addPlanComment(
+  planId: string,
+  content: string,
+): Promise<void> {
+  const userId = await getUserId()
+  const { error } = await supabase.from("plan_comments").insert({
+    plan_id: planId,
+    author_id: userId,
+    content,
+  })
+  if (error) throw new Error(`addPlanComment: ${error.message}`)
 }

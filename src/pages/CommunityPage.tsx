@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   Check,
   Clock,
+  Copy,
   Heart,
+  Link2,
   MessageCircle,
   Pencil,
   Plus,
   Search,
   Send,
   Trash2,
+  UserPlus,
   Users,
   X,
 } from "lucide-react"
@@ -19,6 +23,7 @@ import {
   deleteFriendship,
   deletePost,
   getActivities,
+  getAppProfileByHandle,
   getFeed,
   getFriendships,
   getMeals,
@@ -48,10 +53,13 @@ import {
   ACTIVITY_LABELS,
   INTENSITY_LABELS,
   activityDisplayLabel,
+  isGenericActivityName,
 } from "../lib/activityMeta"
 import { demoFeed } from "../lib/demo"
 import { useAuth } from "../context/AuthContext"
+import { useNotifications } from "../context/NotificationsContext"
 import { useToast } from "../components/Toast"
+import { Avatar } from "../components/Avatar"
 import { PageContainer, PageHeader } from "../components/PageHeader"
 import {
   Badge,
@@ -89,13 +97,6 @@ const KIND_PLACEHOLDERS: Record<PostKind, string> = {
   activity: "How did it go? (optional)",
 }
 
-const AVATAR_TONES = [
-  "bg-sage text-secondary-foreground",
-  "bg-sand text-[#8a5a38]",
-  "bg-blue-soft text-[#3f5b78]",
-  "bg-muted text-muted-foreground",
-]
-
 const emptyFriendships = (): {
   friends: FriendRow[]
   incoming: FriendRow[]
@@ -121,24 +122,6 @@ function timeAgo(iso: string): string {
   })
 }
 
-function Avatar({ profile }: { profile: AppProfile }) {
-  const label = (profile.display_name.trim() || profile.handle).trim()
-  const initials = label
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("")
-  const tone =
-    AVATAR_TONES[(profile.handle.charCodeAt(0) || 0) % AVATAR_TONES.length]
-  return (
-    <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${tone}`}
-    >
-      {initials || "?"}
-    </span>
-  )
-}
-
 function SnapshotCard({ post }: { post: FeedPost }) {
   const s = post.snapshot
 
@@ -152,7 +135,9 @@ function SnapshotCard({ post }: { post: FeedPost }) {
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">
-            {s.name ?? ACTIVITY_LABELS[type]}
+            {s.name && !isGenericActivityName(s.name)
+              ? s.name
+              : ACTIVITY_LABELS[type]}
           </p>
           <p className="tabular truncate text-xs text-muted-foreground">
             {s.duration_min} min
@@ -214,6 +199,8 @@ export default function CommunityPage() {
   const userId = session?.user?.id ?? null
   const { toast } = useToast()
   const { log } = useMealLog()
+  const { refreshNotifications } = useNotifications()
+  const [searchParams] = useSearchParams()
 
   const [myProfile, setMyProfile] = useState<AppProfile | null>(null)
   const [feed, setFeed] = useState<FeedPost[]>([])
@@ -224,6 +211,7 @@ export default function CommunityPage() {
 
   // Composer
   const [kind, setKind] = useState<PostKind>("update")
+  const [description, setDescription] = useState("")
   const [content, setContent] = useState("")
   const [attachId, setAttachId] = useState("")
   const [posting, setPosting] = useState(false)
@@ -242,12 +230,25 @@ export default function CommunityPage() {
   const [results, setResults] = useState<AppProfile[]>([])
   const [searching, setSearching] = useState(false)
 
+  // Add by handle
+  const [addInput, setAddInput] = useState("")
+  const [directResult, setDirectResult] = useState<AppProfile | null>(null)
+  const [directLoading, setDirectLoading] = useState(false)
+
   // Edit my community profile
   const [editOpen, setEditOpen] = useState(false)
   const [editName, setEditName] = useState("")
   const [editHandle, setEditHandle] = useState("")
   const [editBio, setEditBio] = useState("")
   const [savingProfile, setSavingProfile] = useState(false)
+
+  const addParam = searchParams.get("add")
+
+  useEffect(() => {
+    if (!userId || !addParam) return
+    resolveHandle(addParam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, addParam])
 
   useEffect(() => {
     let cancelled = false
@@ -356,6 +357,7 @@ export default function CommunityPage() {
       await acceptFriendRequest(row.id)
       await refreshFriendships()
       await refreshFeed()
+      refreshNotifications()
       toast(
         `${row.peer.display_name || `@${row.peer.handle}`} is now your friend`,
       )
@@ -369,11 +371,60 @@ export default function CommunityPage() {
     try {
       await deleteFriendship(row.id)
       await refreshFriendships()
+      refreshNotifications()
       toast(verb, "info")
     } catch (err) {
       console.error("deleteFriendship:", err)
       toast("Could not update the request", "error")
     }
+  }
+
+  // ── Share handle & add by handle ─────────────────────────────────
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast(`${label} copied`)
+    } catch {
+      toast("Could not copy to clipboard", "error")
+    }
+  }
+
+  function copyHandle() {
+    if (myProfile) copyText(`@${myProfile.handle}`, "Handle")
+  }
+
+  function copyInviteLink() {
+    if (myProfile) {
+      copyText(
+        `${window.location.origin}/community?add=${myProfile.handle}`,
+        "Invite link",
+      )
+    }
+  }
+
+  async function resolveHandle(handle: string) {
+    const clean = handle.trim().replace(/^@/, "")
+    if (!userId) return
+    if (clean.length < 2) {
+      toast("Enter a handle to look up", "error")
+      return
+    }
+    setDirectLoading(true)
+    try {
+      const profile = await getAppProfileByHandle(clean)
+      setDirectResult(profile)
+      if (!profile) toast(`No one found with @${clean}`, "error")
+    } catch (err) {
+      console.error("getAppProfileByHandle:", err)
+      toast("Could not look up that handle", "error")
+    } finally {
+      setDirectLoading(false)
+    }
+  }
+
+  async function handleAddByHandle(e: React.FormEvent) {
+    e.preventDefault()
+    await resolveHandle(addInput)
   }
 
   // ── Composer ────────────────────────────────────────────────────
@@ -474,9 +525,11 @@ export default function CommunityPage() {
     try {
       await createPost({
         kind,
+        description: description.trim(),
         content: trimmed,
         snapshot: snapshotFor(),
       })
+      setDescription("")
       setContent("")
       setAttachId("")
       await refreshFeed()
@@ -660,13 +713,22 @@ export default function CommunityPage() {
                   ))}
                 </div>
 
+                <input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Headline (optional)"
+                  maxLength={120}
+                  aria-label="Post headline"
+                  className={`${field} mt-3 w-full rounded-xl font-medium`}
+                />
+
                 <textarea
                   rows={2}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder={KIND_PLACEHOLDERS[kind]}
                   aria-label="Post text"
-                  className={`${field} mt-3 w-full resize-none rounded-xl`}
+                  className={`${field} mt-2 w-full resize-none rounded-xl`}
                 />
 
                 {attachOptions.length > 0 && (
@@ -761,6 +823,12 @@ export default function CommunityPage() {
                             </button>
                           )}
                         </div>
+
+                        {post.description && (
+                          <p className="mt-2 text-[15px] font-semibold leading-snug text-foreground">
+                            {post.description}
+                          </p>
+                        )}
 
                         {post.content && (
                           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
@@ -889,24 +957,104 @@ export default function CommunityPage() {
             ) : (
               <>
                 {myProfile && (
-                  <div className="mb-3 flex items-center gap-2.5 rounded-xl bg-muted/60 px-3 py-2.5">
-                    <Avatar profile={myProfile} />
+                  <div className="mb-3 rounded-xl bg-muted/60 px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <Avatar profile={myProfile} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {myProfile.display_name || "Add your name"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          @{myProfile.handle}
+                        </p>
+                      </div>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label="Edit community profile"
+                        onClick={openEditProfile}
+                      >
+                        <Pencil size={14} />
+                      </Button>
+                    </div>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={copyHandle}
+                        aria-label="Copy your handle"
+                      >
+                        <Copy size={13} />
+                        Copy handle
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={copyInviteLink}
+                        aria-label="Copy your invite link"
+                      >
+                        <Link2 size={13} />
+                        Invite link
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Add a friend by handle */}
+                <form onSubmit={handleAddByHandle} className="mb-3">
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Add a friend
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={addInput}
+                      onChange={(e) => setAddInput(e.target.value)}
+                      placeholder="@handle"
+                      aria-label="Add friend by handle"
+                      className={`${field} min-w-0 flex-1 rounded-xl`}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="secondary"
+                      loading={directLoading}
+                    >
+                      <UserPlus size={14} />
+                      Add
+                    </Button>
+                  </div>
+                </form>
+
+                {directResult && (
+                  <div className="mb-3 flex items-center gap-2 rounded-xl border border-border px-3 py-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">
-                        {myProfile.display_name || "Add your name"}
+                        {directResult.display_name || "Member"}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        @{myProfile.handle}
+                        @{directResult.handle}
                       </p>
                     </div>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label="Edit community profile"
-                      onClick={openEditProfile}
-                    >
-                      <Pencil size={14} />
-                    </Button>
+                    {relationWith(directResult.id) === "none" && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleAdd(directResult)}
+                      >
+                        Add
+                      </Button>
+                    )}
+                    {relationWith(directResult.id) === "friend" && (
+                      <Badge tone="sage">Friends</Badge>
+                    )}
+                    {relationWith(directResult.id) === "incoming" && (
+                      <Badge tone="blue">Requested you</Badge>
+                    )}
+                    {relationWith(directResult.id) === "outgoing" && (
+                      <span className="text-xs text-muted-foreground">
+                        Requested
+                      </span>
+                    )}
                   </div>
                 )}
 

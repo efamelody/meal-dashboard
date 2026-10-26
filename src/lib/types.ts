@@ -215,6 +215,8 @@ export interface FeedPost {
   id: string
   author_id: string
   kind: PostKind
+  /** Optional headline / description shown above the body text. */
+  description: string
   content: string
   snapshot: PostSnapshot
   created_at: string
@@ -222,6 +224,45 @@ export interface FeedPost {
   likes: number
   likedByMe: boolean
   comments: number
+}
+
+/* ── Group activity plans ─────────────────────────────────────────────── */
+
+export type RsvpStatus = "invited" | "going" | "maybe" | "declined"
+
+export interface PlanParticipant {
+  id: string
+  plan_id: string
+  user_id: string
+  rsvp: RsvpStatus
+  /** Synced Activity row created when the user RSVPs "going". */
+  activity_id?: string | null
+  profile: AppProfile
+}
+
+export interface ActivityPlan {
+  id: string
+  creator_id: string
+  title: string
+  activity_type: ActivityType
+  plan_date: ISODate
+  plan_time?: string | null
+  location?: string | null
+  details?: string | null
+  duration_min: number
+  created_at: string
+  creator: AppProfile
+  participants: PlanParticipant[]
+  myRsvp: RsvpStatus
+}
+
+export interface PlanComment {
+  id: string
+  plan_id: string
+  author_id: string
+  content: string
+  created_at: string
+  author: AppProfile
 }
 
 export interface FeedComment {

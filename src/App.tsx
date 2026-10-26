@@ -5,16 +5,13 @@ import {
   Navigate,
   useLocation,
 } from "react-router-dom"
-import { Salad, LogOut } from "lucide-react"
 import { AuthProvider, useAuth } from "./context/AuthContext"
 import { MealLogProvider } from "./context/MealLogContext"
 import { ToastProvider } from "./components/Toast"
-import Sidebar from "./components/Sidebar"
-import BottomNav from "./components/BottomNav"
-import ProfileMenu from "./components/ProfileMenu"
-import AiFooter from "./components/AiFooter"
-import MealLogBanner from "./components/MealLogBanner"
+import DashboardLayout from "./components/DashboardLayout"
+import LandingPage from "./pages/LandingPage"
 import LoginPage from "./pages/LoginPage"
+import SignUpPage from "./pages/SignUpPage"
 import HomePage from "./pages/HomePage"
 import MealsPage from "./pages/MealsPage"
 import InventoryPage from "./pages/InventoryPage"
@@ -24,8 +21,8 @@ import ProfilePage from "./pages/ProfilePage"
 import ProgressPage from "./pages/ProgressPage"
 import ActivityLogPage from "./pages/ActivityLogPage"
 import CommunityPage from "./pages/CommunityPage"
+import PlansPage from "./pages/PlansPage"
 import KitchenLayout from "./pages/KitchenLayout"
-import { supabase } from "./lib/supabase"
 
 /** Keeps the query string (e.g. ?week=…) when redirecting legacy URLs. */
 function RedirectWithSearch({ to }: { to: string }) {
@@ -33,69 +30,71 @@ function RedirectWithSearch({ to }: { to: string }) {
   return <Navigate to={{ pathname: to, search: location.search }} replace />
 }
 
-function BrandMark() {
+function HomeRoute() {
+  const { session } = useAuth()
+  if (!session) return <LandingPage />
   return (
-    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-      <Salad size={14} />
-    </span>
+    <DashboardLayout>
+      <HomePage />
+    </DashboardLayout>
   )
 }
 
-function MobileTopBar() {
-  const { session, openAuth } = useAuth()
+function DemoRoute() {
+  const { session } = useAuth()
+  if (session) return <Navigate to="/" replace />
   return (
-    <header className="lg:hidden sticky top-0 z-30 flex items-center gap-2 px-4 h-14 bg-card/95 backdrop-blur border-b border-border">
-      <a href="/" className="flex items-center gap-2" aria-label="MealKit home">
-        <BrandMark />
-        <span className="font-display text-[17px] leading-none text-foreground">
-          MealKit
-        </span>
-      </a>
-      <div className="ml-auto flex items-center gap-2">
-        {session ? (
-          <>
-            <ProfileMenu compact />
-            <button
-              type="button"
-              onClick={() => supabase.auth.signOut()}
-              aria-label="Sign out"
-              className="p-2 -mr-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <LogOut size={17} />
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={openAuth}
-            className="text-[13px] font-medium text-primary px-2.5 py-1.5 rounded-lg hover:bg-muted transition-colors"
-          >
-            Sign in
-          </button>
-        )}
-      </div>
-    </header>
+    <DashboardLayout>
+      <HomePage />
+    </DashboardLayout>
   )
 }
 
-function PreviewBanner() {
-  const { openAuth } = useAuth()
+function AppRoutes() {
   return (
-    <div className="flex items-center justify-between gap-3 px-4 sm:px-8 py-2.5 bg-sand text-[#8a5a38] text-xs border-b border-[#ead9c4]">
-      <span>Preview — you&apos;re viewing sample data.</span>
-      <button
-        type="button"
-        onClick={openAuth}
-        className="font-semibold hover:underline whitespace-nowrap"
-      >
-        Sign in / Create account
-      </button>
-    </div>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignUpPage />} />
+      <Route path="/" element={<HomeRoute />} />
+      <Route path="/demo" element={<DemoRoute />} />
+
+      <Route element={<DashboardLayout />}>
+        <Route path="/plan" element={<PlannerPage />} />
+        <Route path="/kitchen" element={<KitchenLayout />}>
+          <Route index element={<Navigate to="/kitchen/meals" replace />} />
+          <Route path="meals" element={<MealsPage />} />
+          <Route path="inventory" element={<InventoryPage />} />
+          <Route path="grocery" element={<GroceryPage />} />
+        </Route>
+        <Route path="/progress" element={<ProgressPage />} />
+        <Route path="/activity" element={<ActivityLogPage />} />
+        <Route path="/plans" element={<PlansPage />} />
+        <Route path="/community" element={<CommunityPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+
+        {/* Legacy routes */}
+        <Route path="/planner" element={<RedirectWithSearch to="/plan" />} />
+        <Route
+          path="/meals"
+          element={<RedirectWithSearch to="/kitchen/meals" />}
+        />
+        <Route
+          path="/inventory"
+          element={<RedirectWithSearch to="/kitchen/inventory" />}
+        />
+        <Route
+          path="/grocery"
+          element={<RedirectWithSearch to="/kitchen/grocery" />}
+        />
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
 
 function AppShell() {
-  const { session, loading } = useAuth()
+  const { loading } = useAuth()
 
   if (loading) {
     return (
@@ -111,55 +110,7 @@ function AppShell() {
   return (
     <BrowserRouter>
       <ToastProvider>
-        <div className="min-h-screen bg-background">
-          <Sidebar />
-          <div className="lg:pl-64 flex min-h-screen flex-col">
-            <MobileTopBar />
-            {!session && <PreviewBanner />}
-            <MealLogBanner />
-            <main className="flex-1 min-w-0 pb-4">
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/plan" element={<PlannerPage />} />
-                <Route path="/kitchen" element={<KitchenLayout />}>
-                  <Route
-                    index
-                    element={<Navigate to="/kitchen/meals" replace />}
-                  />
-                  <Route path="meals" element={<MealsPage />} />
-                  <Route path="inventory" element={<InventoryPage />} />
-                  <Route path="grocery" element={<GroceryPage />} />
-                </Route>
-                <Route path="/progress" element={<ProgressPage />} />
-                <Route path="/activity" element={<ActivityLogPage />} />
-                <Route path="/community" element={<CommunityPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
-                <Route path="/login" element={<LoginPage />} />
-
-                {/* Legacy routes */}
-                <Route
-                  path="/planner"
-                  element={<RedirectWithSearch to="/plan" />}
-                />
-                <Route
-                  path="/meals"
-                  element={<RedirectWithSearch to="/kitchen/meals" />}
-                />
-                <Route
-                  path="/inventory"
-                  element={<RedirectWithSearch to="/kitchen/inventory" />}
-                />
-                <Route
-                  path="/grocery"
-                  element={<RedirectWithSearch to="/kitchen/grocery" />}
-                />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-              <AiFooter />
-            </main>
-          </div>
-          <BottomNav />
-        </div>
+        <AppRoutes />
       </ToastProvider>
     </BrowserRouter>
   )

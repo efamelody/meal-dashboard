@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { ChevronDown, LogOut, LogIn, UserRound, Settings } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { supabase } from "../lib/supabase"
@@ -37,7 +37,8 @@ export default function ProfileMenu({
 }: {
   compact?: boolean
 }) {
-  const { session, openAuth } = useAuth()
+  const { session } = useAuth()
+  const navigate = useNavigate()
   const name = useProfileName()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -61,14 +62,13 @@ export default function ProfileMenu({
 
   if (!session) {
     return (
-      <button
-        type="button"
-        onClick={openAuth}
+      <Link
+        to="/login"
         className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 h-9 text-[13px] font-medium text-foreground hover:bg-muted transition-colors"
       >
         <LogIn size={14} />
         Sign in
-      </button>
+      </Link>
     )
   }
 
@@ -134,9 +134,10 @@ export default function ProfileMenu({
           <button
             type="button"
             role="menuitem"
-            onClick={() => {
+            onClick={async () => {
               setOpen(false)
-              supabase.auth.signOut()
+              await supabase.auth.signOut()
+              navigate("/")
             }}
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-error hover:bg-[#faf0ee] transition-colors"
           >

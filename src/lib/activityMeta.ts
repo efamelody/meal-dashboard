@@ -94,21 +94,27 @@ export const DETAIL_PLACEHOLDERS: Record<ActivityType, string> = {
 const CATEGORY_PATTERNS: Array<[ActivityType, RegExp]> = [
   [
     "walking",
-    /\b(walk|walking|hike|hiking|trek|trekking|stroll|footsteps?)\b/i,
+    /\b(walk|walking|hike|hiking|trek|trekking|stroll|footsteps?|mendaki|berjalan)\b/i,
   ],
-  ["running", /\b(run|running|jog|jogging|sprint|sprinting|marathon)\b/i],
-  ["cycling", /\b(cycl|cycling|bike|biking|bicycle|spin class|ride|riding)\b/i],
+  [
+    "running",
+    /\b(run|running|jog|jogging|sprint|sprinting|marathon|berlari|lari)\b/i,
+  ],
+  [
+    "cycling",
+    /\b(cycl|cycling|bike|biking|bicycle|spin class|spin|ride|riding|berbasikal)\b/i,
+  ],
   [
     "strength",
-    /\b(gym|strength|weights?|lifting|lift|resistance|bodyweight|push-?ups?|squats?|deadlift|core workout)\b/i,
+    /\b(gym|strength|weights?|lifting|lift|resistance|bodyweight|push-?ups?|squats?|deadlift|core workout|hiit|circuit|bootcamp|boot camp|crossfit|calisthenics|angkat berat|stair climbing|stairmaster)\b/i,
   ],
   [
     "sports",
-    /\b(swim|swimming|laps?|tennis|badminton|squash|football|soccer|basketball|volleyball|badminton|golf|cricket|table tennis|padel|rugby|hockey|baseball)\b/i,
+    /\b(swim|swimming|water aerobics|aqua aerobics|laps?|tennis|badminton|squash|football|soccer|futsal|basketball|volleyball|netball|golf|cricket|table tennis|padel|rugby|hockey|baseball|rowing|erg|boxing|kickboxing|martial arts?|rock climbing|bouldering|indoor climbing|kayak|paddleboard|skiing|snowboarding|skating|skateboarding|archery|berenang|mendayung|bola sepak|bola keranjang|bola tampar|tinju|memanah)\b/i,
   ],
   [
     "other",
-    /\b(yoga|pilates|danc|stretch|mobility|meditation|barre|zen|aerobics|zumba)\b/i,
+    /\b(yoga|pilates|danc|stretch|mobility|meditation|barre|zen|aerobics|aerobik|zumba|tai chi|menari|regangan|senaman)\b/i,
   ],
 ]
 
@@ -131,11 +137,64 @@ export function inferActivityCategory(name: string): ActivityType {
   return "other"
 }
 
+/* ── Name hygiene ────────────────────────────────────────────────────── */
+
+/**
+ * Words that describe a bucket, not an activity. Walking/Running/Cycling are
+ * valid activity names, so they are deliberately not treated as generic.
+ */
+const GENERIC_ACTIVITY_NAMES = new Set([
+  "sport",
+  "sports",
+  "other",
+  "activity",
+  "exercise",
+  "session",
+  "training",
+  "unknown",
+  "null",
+])
+
+const CANONICAL_ACTIVITY_NAMES: Record<string, string> = {
+  hiit: "HIIT",
+  crossfit: "CrossFit",
+  "muay thai": "Muay Thai",
+}
+
+/** True when the text is only a category/placeholder, not a real activity. */
+export function isGenericActivityName(name: string): boolean {
+  return GENERIC_ACTIVITY_NAMES.has(name.trim().toLowerCase())
+}
+
+/**
+ * Clean up a name coming from the AI or a legacy row: reject category words,
+ * collapse whitespace, prefer the catalogue spelling, and fix lowercase names
+ * like "pilates" → "Pilates" without destroying acronyms such as HIIT.
+ */
+export function normalizeActivityName(name: string): string | null {
+  const value = name.trim().replace(/\s+/g, " ")
+  if (!value || isGenericActivityName(value)) return null
+
+  const exact = ACTIVITY_SUGGESTIONS.find(
+    (suggestion) => suggestion.name.toLowerCase() === value.toLowerCase(),
+  )
+  if (exact) return exact.name
+
+  const canonical = CANONICAL_ACTIVITY_NAMES[value.toLowerCase()]
+  if (canonical) return canonical
+
+  // Preserve names that already carry intentional casing ("Reformer Pilates").
+  if (/[A-Z]/.test(value.slice(1))) return value
+
+  const lower = value.toLowerCase()
+  return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
 /** Label for a stored activity: the specific name when present, else category. */
 export function activityDisplayLabel(
   activity: Pick<ActivityRow, "activity_type" | "name">,
 ): string {
   const name = activity.name?.trim()
-  if (name) return name
+  if (name && !isGenericActivityName(name)) return name
   return ACTIVITY_LABELS[activity.activity_type]
 }

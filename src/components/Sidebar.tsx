@@ -6,8 +6,12 @@ import {
   ChartLine,
   Dumbbell,
   Users,
+  ClipboardList,
 } from "lucide-react"
+import Brand from "./Brand"
 import ProfileMenu from "./ProfileMenu"
+import { useAuth } from "../context/AuthContext"
+import { useNotifications } from "../context/NotificationsContext"
 
 const links = [
   { to: "/", label: "Home", icon: House, end: true },
@@ -15,40 +19,24 @@ const links = [
   { to: "/kitchen", label: "Kitchen", icon: Refrigerator, end: false },
   { to: "/activity", label: "Activity", icon: Dumbbell, end: false },
   { to: "/progress", label: "Progress", icon: ChartLine, end: false },
+  { to: "/plans", label: "Plans", icon: ClipboardList, end: false },
   { to: "/community", label: "Community", icon: Users, end: false },
 ]
 
 export { links as NAV_LINKS }
 
 export default function Sidebar() {
+  const { session } = useAuth()
+  const { incomingRequests } = useNotifications()
+  const navLinks = links.map((link) =>
+    link.label === "Home" ? { ...link, to: session ? "/" : "/demo" } : link,
+  )
+
   return (
     <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 flex-col border-r border-border bg-background">
       <div className="px-5 pt-7 pb-6">
-        <Link to="/" className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M7 21h10" />
-              <path d="M12 21a8 8 0 0 0 8-8c0-3-2-5-2-5s-1 2-3 2-3-3-3-3-2 3-5 3c0 0-2 1-2 1a8 8 0 0 0 7 10Z" />
-            </svg>
-          </span>
-          <span>
-            <span className="font-display block text-[19px] leading-none text-foreground">
-              MealKit
-            </span>
-            <span className="mt-1 block text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              Food &amp; Fitness
-            </span>
-          </span>
+        <Link to="/" className="inline-flex">
+          <Brand />
         </Link>
       </div>
 
@@ -56,9 +44,9 @@ export default function Sidebar() {
         aria-label="Primary"
         className="flex-1 px-3 space-y-1 overflow-y-auto"
       >
-        {links.map(({ to, label, icon: Icon, end }) => (
+        {navLinks.map(({ to, label, icon: Icon, end }) => (
           <NavLink
-            key={to}
+            key={label}
             to={to}
             end={end}
             className={({ isActive }) =>
@@ -72,7 +60,12 @@ export default function Sidebar() {
             {({ isActive }) => (
               <>
                 <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} />
-                {label}
+                <span className="flex-1">{label}</span>
+                {label === "Community" && incomingRequests > 0 && (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-semibold flex items-center justify-center">
+                    {incomingRequests}
+                  </span>
+                )}
               </>
             )}
           </NavLink>

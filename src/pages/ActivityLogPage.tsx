@@ -26,7 +26,6 @@ import VoiceDescribePanel from "../components/activity/VoiceDescribePanel"
 import CalorieEstimateCard from "../components/activity/CalorieEstimateCard"
 import {
   ACTIVITY_ICONS,
-  ACTIVITY_LABELS,
   INTENSITY_LABELS,
   activityDisplayLabel,
   inferActivityCategory,
@@ -62,6 +61,7 @@ interface DraftMeta {
   notice?: string
   transcript: string
   approximate: boolean
+  nameMissing: boolean
 }
 
 export default function ActivityLogPage() {
@@ -148,6 +148,7 @@ export default function ActivityLogPage() {
       notice: interpretation.notice,
       transcript,
       approximate: d.duration_approximate,
+      nameMissing: !d.name,
     })
     if (d.duration_min != null) setEstimateOpen(true)
   }
@@ -209,6 +210,7 @@ export default function ActivityLogPage() {
           try {
             await createPost({
               kind: "activity",
+              description: "",
               content: form.shareNote.trim(),
               snapshot: {
                 activity_type: saved.activity_type,
@@ -298,7 +300,20 @@ export default function ActivityLogPage() {
   }, [form])
 
   const inferred = useMemo(() => {
-    const list = [`Classified as ${ACTIVITY_LABELS[category]}`]
+    const list: string[] = []
+    const name = form.name.trim()
+    if (name) {
+      if (estimate.status === "ok") {
+        const label = estimate.label
+        list.push(
+          label.toLowerCase().includes(name.toLowerCase())
+            ? `Energy model: ${label}`
+            : `Energy model: ${label} (from “${name}”)`,
+        )
+      } else {
+        list.push(`No energy model yet for “${name}”`)
+      }
+    }
     if (form.intensity === "unknown") {
       list.push("effort not stated — full easy–vigorous range used")
     }
@@ -306,7 +321,7 @@ export default function ActivityLogPage() {
       list.push("description read on this device (AI unavailable)")
     }
     return list
-  }, [category, form.intensity, draftMeta])
+  }, [estimate, form.intensity, form.name, draftMeta])
 
   const recent = useMemo(() => {
     const merged = userId ? activities : [...previewActivities, ...activities]
@@ -389,6 +404,15 @@ export default function ActivityLogPage() {
                     <Badge tone="neutral">{form.distanceKm.trim()} km</Badge>
                   )}
                 </div>
+
+                {draftMeta.nameMissing && !form.name.trim() && (
+                  <div className="mt-3">
+                    <InlineNote tone="warning" icon={<AlertCircle size={13} />}>
+                      We couldn&apos;t find a specific activity name in that
+                      description — add it in the Activity field below.
+                    </InlineNote>
+                  </div>
+                )}
 
                 {draftMeta.notice && (
                   <div className="mt-3 space-y-2">
