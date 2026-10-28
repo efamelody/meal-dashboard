@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 import {
   Activity as ActivityIcon,
   ArrowRight,
+  BookOpen,
   Check,
   ChevronRight,
   Cookie,
@@ -288,10 +289,23 @@ export default function HomePage() {
         title={`${greeting}${displayName ? `, ${displayName}` : ""}`}
         subtitle={`${dateLine} · ${timeLine}`}
         actions={
-          <Button variant="outline" size="sm" onClick={() => navigate("/plan")}>
-            Open plan
-            <ArrowRight size={14} />
-          </Button>
+          <>
+            <Link
+              to="/how-to"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <BookOpen size={14} />
+              How it works
+            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/plan")}
+            >
+              Open plan
+              <ArrowRight size={14} />
+            </Button>
+          </>
         }
       />
 

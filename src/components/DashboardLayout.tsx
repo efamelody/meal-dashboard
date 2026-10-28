@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
-import { Link, Outlet, useNavigate } from "react-router-dom"
-import { LogOut } from "lucide-react"
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom"
+import { BookOpen, LogOut } from "lucide-react"
 import Sidebar from "./Sidebar"
 import BottomNav from "./BottomNav"
 import ProfileMenu from "./ProfileMenu"
@@ -30,6 +30,19 @@ function MobileTopBar() {
         <Brand size={30} subtitle="Meal Planner" />
       </Link>
       <div className="ml-auto flex items-center gap-2">
+        <NavLink
+          to="/how-to"
+          aria-label="How to use MealKit"
+          className={({ isActive }) =>
+            `p-2 rounded-lg transition-colors ${
+              isActive
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`
+          }
+        >
+          <BookOpen size={17} />
+        </NavLink>
         {session ? (
           <>
             <ProfileMenu compact />

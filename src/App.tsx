@@ -22,6 +22,7 @@ import ProgressPage from "./pages/ProgressPage"
 import ActivityLogPage from "./pages/ActivityLogPage"
 import CommunityPage from "./pages/CommunityPage"
 import PlansPage from "./pages/PlansPage"
+import HowToPage from "./pages/HowToPage"
 import KitchenLayout from "./pages/KitchenLayout"
 
 /** Keeps the query string (e.g. ?week=…) when redirecting legacy URLs. */
@@ -70,6 +71,7 @@ function AppRoutes() {
         <Route path="/activity" element={<ActivityLogPage />} />
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/community" element={<CommunityPage />} />
+        <Route path="/how-to" element={<HowToPage />} />
         <Route path="/profile" element={<ProfilePage />} />
 
         {/* Legacy routes */}

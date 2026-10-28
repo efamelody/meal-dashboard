@@ -6,7 +6,7 @@ import {
   ChartLine,
   Dumbbell,
   Users,
-  ClipboardList,
+  BookOpen,
 } from "lucide-react"
 import Brand from "./Brand"
 import ProfileMenu from "./ProfileMenu"
@@ -19,7 +19,6 @@ const links = [
   { to: "/kitchen", label: "Kitchen", icon: Refrigerator, end: false },
   { to: "/activity", label: "Activity", icon: Dumbbell, end: false },
   { to: "/progress", label: "Progress", icon: ChartLine, end: false },
-  { to: "/plans", label: "Plans", icon: ClipboardList, end: false },
   { to: "/community", label: "Community", icon: Users, end: false },
 ]
 
@@ -82,6 +81,19 @@ export default function Sidebar() {
             always confirm what gets saved.
           </p>
         </div>
+        <NavLink
+          to="/how-to"
+          className={({ isActive }) =>
+            `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+              isActive
+                ? "bg-sage text-accent"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <BookOpen size={16} strokeWidth={1.8} />
+          How to use MealKit
+        </NavLink>
         <ProfileMenu />
       </div>
     </aside>

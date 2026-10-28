@@ -6,7 +6,6 @@ import {
   Dumbbell,
   ChartLine,
   Users,
-  ClipboardList,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { useNotifications } from "../context/NotificationsContext"
@@ -17,7 +16,6 @@ const links = [
   { to: "/kitchen", label: "Kitchen", icon: Refrigerator, end: false },
   { to: "/activity", label: "Activity", icon: Dumbbell, end: false },
   { to: "/progress", label: "Progress", icon: ChartLine, end: false },
-  { to: "/plans", label: "Plans", icon: ClipboardList, end: false },
   { to: "/community", label: "Community", icon: Users, end: false },
 ]
 
@@ -33,7 +31,7 @@ export default function BottomNav() {
       aria-label="Primary"
       className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur border-t border-border pb-[env(safe-area-inset-bottom)]"
     >
-      <div className="grid grid-cols-7">
+      <div className="grid grid-cols-6">
         {navLinks.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={label}

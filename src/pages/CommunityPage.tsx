@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import {
+  CalendarDays,
   Check,
   Clock,
   Copy,
@@ -675,6 +676,15 @@ export default function CommunityPage() {
       <PageHeader
         title="Community"
         subtitle="Share meals, recipes, and activity with friends."
+        actions={
+          <Link
+            to="/plans"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <CalendarDays size={15} />
+            Plans
+          </Link>
+        }
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

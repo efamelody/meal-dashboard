@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { ChevronDown, LogOut, LogIn, UserRound, Settings } from "lucide-react"
+import {
+  ChevronDown,
+  LogOut,
+  LogIn,
+  UserRound,
+  Settings,
+  BookOpen,
+} from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { supabase } from "../lib/supabase"
 
@@ -130,6 +137,15 @@ export default function ProfileMenu({
           >
             <Settings size={15} className="text-muted-foreground" />
             Settings
+          </Link>
+          <Link
+            to="/how-to"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+          >
+            <BookOpen size={15} className="text-muted-foreground" />
+            How to use MealKit
           </Link>
           <button
             type="button"
