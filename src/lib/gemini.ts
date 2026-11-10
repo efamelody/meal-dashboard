@@ -4,7 +4,7 @@
 
 import { ACTIVITY_LABELS, GOAL_LABELS, type FormulaResult } from "./nutrition"
 import type { ActivityLevel, Goal, Sex } from "./types"
-import type { HealthMetricKey } from "./health"
+import type { HealthAvoidItem, HealthMetricKey } from "./health"
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 const DEFAULT_MODEL =
@@ -252,6 +252,13 @@ async function downscaleImage(
 }
 
 /** One food the AI recognised in the photo, with the reasoning behind it. */
+export interface MealItemFlag {
+  /** "danger" = squarely an avoid-list item; "warning" = overlap or limit. */
+  level: "warning" | "danger"
+  /** Short, metric-based why, e.g. "high sugar — visceral fat". */
+  reason: string
+}
+
 export interface MealEstimateItem {
   /** Short dish name, e.g. "Nasi lemak". */
   name: string
@@ -265,6 +272,8 @@ export interface MealEstimateItem {
   /** What the AI sees, the portion it assumed, and how it got the number. */
   justification: string
   confidence: "low" | "medium" | "high"
+  /** Set when the food clashes with the user's saved avoid list. */
+  flag?: MealItemFlag | null
 }
 
 export interface MealEstimate {
@@ -278,6 +287,8 @@ export interface MealPhotoInput {
   imageDataUrl?: string
   /** The user says the AI got the food wrong, e.g. "no this is nasi ayam". */
   correction?: string
+  /** Saved from the check-up analysis — foods to steer away from. */
+  avoidList?: HealthAvoidItem[]
 }
 
 const MEAL_PROMPT = `You are a nutrition assistant who knows Malaysian and Singaporean food: hawker centres, kopitiams, mamaks, and home cooking.
@@ -298,12 +309,13 @@ Rules:
 - Be honest about uncertainty: use "low" confidence for anything you cannot clearly see.
 
 Return a JSON object:
-{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "sugar_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high"}]}`
+{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "sugar_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high", "flag": null | {"level": "warning" | "danger", "reason": "<short why>"}}]}`
 
 function buildMealPrompt(input: {
   description: string
   photoAttached: boolean
   correction: string
+  avoidList?: HealthAvoidItem[]
 }): string {
   const sections = [MEAL_PROMPT]
   if (input.description) {
@@ -317,6 +329,19 @@ function buildMealPrompt(input: {
     sections.push(
       `The user says a previous identification was wrong. Their correction: "${input.correction}". The correction overrides the description and the photo, so treat it as the truth about what the food is and estimate again.`,
     )
+  }
+  if (input.avoidList?.length) {
+    const lines = input.avoidList
+      .map(
+        (item) =>
+          `- ${item.food} — ${item.severity.toUpperCase()}${
+            item.reason ? ` (because of ${item.reason})` : ""
+          }`,
+      )
+      .join("\n")
+    sections.push(`The user's saved check-up analysis asks them to steer away from:
+${lines}
+Check every item you identify against that list. Set "flag" to {"level": "danger", "reason": "<short why>"} when the food is squarely one of these, {"level": "warning", "reason": "<short why>"} when it overlaps with a limit item or is a close relative of one (same sauce, same base, same cooking style), and null otherwise. Anchor every reason in the saved metric it stresses — e.g. "high sugar — limiting sugary drinks for visceral fat" — without diagnosing or claiming any food treats a condition. Do not put the warning inside the item name; the app renders the flag itself.`)
   }
   return sections.join("\n\n")
 }
@@ -335,6 +360,39 @@ function asConfidence(value: unknown): MealEstimateItem["confidence"] {
   return text === "low" || text === "high" ? text : "medium"
 }
 
+/** Narrows whatever the model returned into a flag, or null. */
+function asFlag(value: unknown): MealItemFlag | null {
+  if (typeof value !== "object" || value === null) return null
+  const raw = value as { level?: unknown; reason?: unknown }
+  const reason = asText(raw.reason)
+  if (!reason) return null
+  const level = asText(raw.level).toLowerCase()
+  return { level: level === "danger" ? "danger" : "warning", reason }
+}
+
+/** Narrows whatever the check-up returned into a clean avoid list. */
+function parseAvoidList(raw: unknown): HealthAvoidItem[] {
+  if (!Array.isArray(raw)) return []
+  const out: HealthAvoidItem[] = []
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue
+    const item = entry as {
+      food?: unknown
+      reason?: unknown
+      severity?: unknown
+    }
+    const food = asText(item.food)
+    if (!food) continue
+    out.push({
+      food,
+      reason: asText(item.reason),
+      severity:
+        asText(item.severity).toLowerCase() === "avoid" ? "avoid" : "limit",
+    })
+  }
+  return out
+}
+
 interface RawEstimateItem {
   name?: unknown
   portion?: unknown
@@ -345,6 +403,7 @@ interface RawEstimateItem {
   sugar_g?: unknown
   justification?: unknown
   confidence?: unknown
+  flag?: unknown
 }
 
 function parseEstimateItem(
@@ -365,6 +424,7 @@ function parseEstimateItem(
       asText(raw.justification) ||
       `Estimated about ${calories} kcal for one ${name.toLowerCase()}.`,
     confidence: asConfidence(raw.confidence),
+    flag: asFlag(raw.flag),
   }
 }
 
@@ -421,6 +481,7 @@ export async function estimateMealFromPhoto(
       description: input.description.trim(),
       photoAttached,
       correction,
+      avoidList: input.avoidList,
     }),
   })
   const raw = await callGeminiParts<unknown>(parts)
@@ -440,6 +501,10 @@ export interface HealthImportDraft {
     label: string
     target?: string
   }>
+  /** One "due to high visceral fat…" statement naming what to cut back on. */
+  avoid_summary?: string
+  /** Food and drink categories to avoid or limit, keyed to the metrics. */
+  avoid_list?: HealthAvoidItem[]
 }
 
 /** Extracts a check-up photo into a reviewable draft; the image is not stored. */
@@ -452,11 +517,17 @@ export async function analyzeHealthCheckup(
   const prompt = `You are extracting a health screening sheet into structured data for the user to review.
 Read handwritten and printed values carefully. Do not diagnose, invent missing values, or turn a report score into a medical diagnosis.
 Use ISO date YYYY-MM-DD. If only month and year are visible, use the first day of that month.
+Also derive diet guidance from the values you read: build one plain-language "avoid_summary" sentence that starts like "Due to high <metric label>…" and names what to eat less of, plus an "avoid_list" of local Malaysian/Singaporean food and drink categories. Derive categories only from metrics whose value is outside its target or clearly elevated (for example high visceral fat → sugary drinks and deep-fried snacks; high cholesterol → fatty meat and full-cream tea; high fasting glucose → sweetened drinks). Severity "avoid" for the worst clashes, "limit" for things to keep small and rare. Do not repeat the same category twice; keep the list to 3–6 items; frame everything as general diet guidance, never as treatment.
 Return JSON only with this shape:
-{"measured_at":"YYYY-MM-DD","summary":"one cautious plain-language summary","focus":"one sentence about the highest-priority areas","goals":["..."],"recommendations":["..."],"metrics":[{"key":"visceral_fat|bmi|total_cholesterol|retinal_arteriosclerosis_risk|retinal_glucose_metabolism_risk|oxito_liver_score|oxito_back_score|blood_pressure_systolic|blood_pressure_diastolic|fasting_glucose","label":"...","value":0,"unit":"...","target":"..."}]}
+{"measured_at":"YYYY-MM-DD","summary":"one cautious plain-language summary","focus":"one sentence about the highest-priority areas","goals":["..."],"recommendations":["..."],"avoid_summary":"one sentence, e.g. Due to high visceral fat, cut back on...","avoid_list":[{"food":"shared food type","reason":"<metric label it stresses>","severity":"avoid|limit"}],"metrics":[{"key":"visceral_fat|bmi|total_cholesterol|retinal_arteriosclerosis_risk|retinal_glucose_metabolism_risk|oxito_liver_score|oxito_back_score|blood_pressure_systolic|blood_pressure_diastolic|fasting_glucose","label":"...","value":0,"unit":"...","target":"..."}]}
 Only include metrics you can actually read. Recommendations must be framed as general next steps or advice visible on the report, not medical treatment. Mention uncertainty in the summary if handwriting is unclear.`
-  return callGeminiParts<HealthImportDraft>([
+  const draft = await callGeminiParts<HealthImportDraft>([
     { inline_data: { mime_type: mime, data } },
     { text: prompt },
   ])
+  return {
+    ...draft,
+    avoid_summary: asText(draft.avoid_summary),
+    avoid_list: parseAvoidList((draft as { avoid_list?: unknown }).avoid_list),
+  }
 }

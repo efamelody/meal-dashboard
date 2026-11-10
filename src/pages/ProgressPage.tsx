@@ -39,6 +39,7 @@ import {
   Card,
   CardHead,
   CardSkeleton,
+  FoodFlagBadge,
   InlineNote,
   ProgressBar,
 } from "../components/ui"
@@ -765,6 +766,15 @@ export default function ProgressPage() {
                               {food.calories} kcal · P{food.protein_g} C
                               {food.carbs_g} F{food.fat_g}
                             </p>
+                            {food.flag_level && (
+                              <div className="mt-1">
+                                <FoodFlagBadge
+                                  level={food.flag_level}
+                                  reason={food.flag_reason}
+                                  showReason
+                                />
+                              </div>
+                            )}
                           </div>
                           <Button
                             size="icon-sm"

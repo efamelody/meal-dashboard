@@ -1,5 +1,5 @@
 import { useEffect, type ButtonHTMLAttributes, type ReactNode } from "react"
-import { Loader2, X, Inbox, AlertCircle } from "lucide-react"
+import { Loader2, X, Inbox, AlertCircle, Flag } from "lucide-react"
 
 /* ── Button ─────────────────────────────────────────────────────────── */
 
@@ -120,6 +120,40 @@ export function Badge({
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap ${BADGE_TONES[tone]} ${className}`}
     >
       {children}
+    </span>
+  )
+}
+
+/* ── FoodFlagBadge ──────────────────────────────────────────────────── */
+
+/**
+ * The flag the AI attached to a logged food because it clashes with the
+ * user's saved avoid list. `danger` = an "avoid" item, `warning` = "limit".
+ */
+export function FoodFlagBadge({
+  level,
+  reason,
+  showReason = false,
+  className = "",
+}: {
+  level: "warning" | "danger"
+  reason?: string | null
+  showReason?: boolean
+  className?: string
+}) {
+  const danger = level === "danger"
+  return (
+    <span
+      title={reason ?? undefined}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${
+        danger ? "bg-[#f6e3e1] text-error" : "bg-[#f6ecdb] text-warning"
+      } ${className}`}
+    >
+      <Flag size={10} className="shrink-0" />
+      {danger ? "Avoid" : "Limit"}
+      {showReason && reason && (
+        <span className="font-normal whitespace-normal">· {reason}</span>
+      )}
     </span>
   )
 }

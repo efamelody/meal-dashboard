@@ -48,6 +48,7 @@ import {
   CardSkeleton,
   EmptyState,
   ErrorState,
+  FoodFlagBadge,
   ProgressBar,
 } from "../components/ui"
 
@@ -664,7 +665,14 @@ export default function HomePage() {
                             className="tabular text-xs leading-relaxed text-muted-foreground"
                           >
                             <span className="text-foreground">{food.food}</span>{" "}
-                            · {food.calories} kcal
+                            · {food.calories} kcal{" "}
+                            {food.flag_level && (
+                              <FoodFlagBadge
+                                level={food.flag_level}
+                                reason={food.flag_reason}
+                                className="ml-1 align-[1px]"
+                              />
+                            )}
                           </li>
                         ))}
                       </ul>

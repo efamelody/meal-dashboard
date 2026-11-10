@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import {
   AlertTriangle,
+  Ban,
   Check,
   HeartPulse,
   ImagePlus,
   Sparkles,
+  Trash2,
 } from "lucide-react"
 import {
   healthProfileIsStale,
@@ -89,6 +91,23 @@ export default function HealthBaselineCard() {
     setSaved(false)
   }
 
+  function removeAvoidItem(index: number) {
+    setProfile((current) => ({
+      ...current,
+      avoid_list: (current.avoid_list ?? []).filter((_, i) => i !== index),
+    }))
+    setSaved(false)
+  }
+
+  function clearAvoidList() {
+    setProfile((current) => ({
+      ...current,
+      avoid_summary: "",
+      avoid_list: [],
+    }))
+    setSaved(false)
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -148,6 +167,10 @@ export default function HealthBaselineCard() {
       recommendations: draft.recommendations.length
         ? draft.recommendations
         : current.recommendations,
+      avoid_summary: draft.avoid_summary || current.avoid_summary || "",
+      avoid_list: draft.avoid_list?.length
+        ? draft.avoid_list
+        : (current.avoid_list ?? []),
       metrics: current.metrics.map((metric) => {
         const next = extracted.get(metric.key)
         return next
@@ -247,6 +270,58 @@ export default function HealthBaselineCard() {
           These results are more than a year old. Keep them as a baseline, but
           update them after your next check-up before treating them as current.
         </InlineNote>
+      )}
+      {(profile.avoid_list?.length ?? 0) > 0 && (
+        <div className="mt-4 rounded-xl border border-border bg-background p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Ban size={15} className="text-terracotta" />
+              What the analysis says to avoid
+            </p>
+            <button
+              type="button"
+              onClick={clearAvoidList}
+              className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-error"
+            >
+              Clear all
+            </button>
+          </div>
+          {profile.avoid_summary && (
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {profile.avoid_summary}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(profile.avoid_list ?? []).map((item, index) => (
+              <span
+                key={`${item.food}-${index}`}
+                className="inline-flex items-center gap-2 rounded-full border border-border bg-card py-0.5 pl-1 pr-2 text-[12px] text-foreground"
+              >
+                <Badge tone={item.severity === "avoid" ? "error" : "warning"}>
+                  {item.severity === "avoid" ? "Avoid" : "Limit"}
+                </Badge>
+                <span className="font-medium">{item.food}</span>
+                {item.reason && (
+                  <span className="text-[11px] text-muted-foreground">
+                    · {item.reason}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeAvoidItem(index)}
+                  aria-label={`Remove ${item.food} from the avoid list`}
+                  className="-mr-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-error"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Saved with your baseline. When you log a meal by photo, matching
+            foods get flagged with the same avoid/limit warning.
+          </p>
+        </div>
       )}
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <div>

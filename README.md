@@ -41,6 +41,20 @@ app that pairs a full meal-planning dashboard with Gemini-powered AI assistance.
 - **Smart deduction** — items already marked *in stock* in your inventory are
   pre-checked as bought.
 
+### 🩺 Health Baseline → Avoid List → Meal Flags
+- **Import a check-up photo** — AI reads the screening sheet (visceral fat,
+  BMI, cholesterol, blood pressure, glucose, …) into an editable baseline.
+- The analysis also saves a summary like *"Due to high visceral fat, cut back
+  on …"* plus a structured **avoid list** (avoid vs. limit, each tied to the
+  metric that motivated it). Review it in the Health baseline card and remove
+  or clear items freely.
+- **Logged meals get flagged** — when you log a meal by photo, Gemini checks
+  every identified food against your saved avoid list. Matching foods carry a
+  `Flagged` badge with the reason ("high sugar — visceral fat"), in the
+  logging modal, on the Home dashboard, and on the Progress page.
+- Works signed-in (Supabase `health_profiles` + `meal_log` flag columns) and
+  signed-out (localStorage).
+
 ### ❤️ Fitness Profile & AI Calorie Recommendation
 - Record age, sex, height, weight, your goal (lose / maintain / build) and
   lifestyle (how much you walk / exercise).
@@ -123,6 +137,17 @@ once. It converts `meal_plan` from a single static week to date-keyed slots
 (backfilling existing rows into the current week) and scopes `grocery_list`
 rows to a week.
 
+Later migrations extend `meal_log`; the newest ones the app probes for are:
+
+- [`008`](supabase/migrations/008_meal_log_multi_food.sql) — one row per food
+- [`009`](supabase/migrations/009_meal_log_ai_reasoning.sql) — AI reasoning columns
+- [`013`](supabase/migrations/013_meal_log_sugar.sql) — sugar per logged food
+- [`015`](supabase/migrations/015_meal_log_flags.sql) — `flag_level` /
+  `flag_reason`, which keep the health-baseline flags on logged foods
+
+The app degrades gracefully when a migration is missing (the Dashboard shows
+which ones to run), but run **015** to keep meal flags after a page refresh.
+
 ### 4. Start developing
 
 ```bash
@@ -179,6 +204,7 @@ supabase/
 | ------------------ | ------------------------------------ |
 | `pnpm run dev`     | Start the Vite dev server            |
 | `pnpm run build`   | Production build                     |
+| `pnpm run typecheck` | TypeScript check (`tsc --noEmit`)  |
 | `pnpm run preview` | Preview the production build         |
 | `pnpm run format`  | Format all source with oxfmt         |
 

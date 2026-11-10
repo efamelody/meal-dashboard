@@ -12,6 +12,16 @@ export interface HealthMetric {
   target?: string
 }
 
+/** One food category to steer away from, derived from the check-up. */
+export interface HealthAvoidItem {
+  /** Short food or drink category, e.g. "sugary drinks". */
+  food: string
+  /** Why, tied to a metric, e.g. "high visceral fat". */
+  reason: string
+  /** "avoid" = hard to justify anytime; "limit" = small portions, rare. */
+  severity: "avoid" | "limit"
+}
+
 export interface HealthProfile {
   focus: string
   summary: string
@@ -21,6 +31,10 @@ export interface HealthProfile {
   sleep_hours_target: string
   water_litres_target: string
   imported_at: string
+  /** The saved "due to high visceral fat…" statement from the last import. */
+  avoid_summary?: string
+  /** Foods and drinks the analysis says to avoid or limit. */
+  avoid_list?: HealthAvoidItem[]
 }
 
 const STORAGE_KEY = "meal-kit-health-profile"
@@ -138,6 +152,8 @@ export const DEFAULT_HEALTH_PROFILE: HealthProfile = {
   sleep_hours_target: "7–8",
   water_litres_target: "2.0–2.5",
   imported_at: new Date().toISOString(),
+  avoid_summary: "",
+  avoid_list: [],
 }
 
 function cloneDefault(): HealthProfile {
@@ -184,12 +200,28 @@ export function summarizeHealthForPrompt(profile: HealthProfile): string {
         `- ${metric.label}: ${metric.value} ${metric.unit} (${metric.measured_at})`,
     )
     .join("\n")
+  const avoidItems = profile.avoid_list ?? []
+  const avoidLines = avoidItems.length
+    ? avoidItems
+        .map(
+          (item) =>
+            `- ${item.food} (${item.severity}${
+              item.reason ? `: ${item.reason}` : ""
+            })`,
+        )
+        .join("\n")
+    : ""
   return [
     `Focus: ${profile.focus}`,
     `Health summary: ${profile.summary}`,
     `Goals: ${profile.goals.join("; ")}`,
     `Health report measurements:\n${metrics}`,
+    avoidItems.length
+      ? `Saved avoid list from the last check-up analysis:\n${avoidLines}\n(The user asked to be nudged away from these.)`
+      : "",
     `Personal recommendations: ${profile.recommendations.join("; ")}`,
     "Treat report scores as user-provided report values, not diagnoses. Do not claim that food reverses a medical condition.",
-  ].join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n")
 }

@@ -105,6 +105,10 @@ export interface LoggedFoodItem {
   user_correction?: string | null
   /** Where the numbers came from. */
   source?: "ai" | "corrected" | "manual" | null
+  /** Set when the food clashes with the user's saved avoid list. */
+  flag_level?: "warning" | "danger" | null
+  /** Why it was flagged, e.g. "high sugar — visceral fat". */
+  flag_reason?: string | null
 }
 
 export interface LoggedMeal {
