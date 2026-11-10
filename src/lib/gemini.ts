@@ -4,6 +4,7 @@
 
 import { ACTIVITY_LABELS, GOAL_LABELS, type FormulaResult } from "./nutrition"
 import type { ActivityLevel, Goal, Sex } from "./types"
+import type { HealthMetricKey } from "./health"
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 const DEFAULT_MODEL =
@@ -135,6 +136,7 @@ export interface NutritionInfo {
   protein_g: number
   carbs_g: number
   fat_g: number
+  sugar_g: number
 }
 
 export interface NutritionRecommendation {
@@ -214,7 +216,7 @@ Meal name: ${mealName}
 Ingredients: ${ingredients.join(", ") || "(none provided)"}
 
 Return a JSON object with only these numeric keys:
-{"calories": <number in kcal>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>}
+{"calories": <number in kcal>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "sugar_g": <number>}
 `.trim()
   const result = await callGeminiJSON<Partial<NutritionInfo>>(prompt)
   return {
@@ -222,6 +224,7 @@ Return a JSON object with only these numeric keys:
     protein_g: Math.max(0, Number(result.protein_g) || 0),
     carbs_g: Math.max(0, Number(result.carbs_g) || 0),
     fat_g: Math.max(0, Number(result.fat_g) || 0),
+    sugar_g: Math.max(0, Number(result.sugar_g) || 0),
   }
 }
 
@@ -258,6 +261,7 @@ export interface MealEstimateItem {
   protein_g: number
   carbs_g: number
   fat_g: number
+  sugar_g: number
   /** What the AI sees, the portion it assumed, and how it got the number. */
   justification: string
   confidence: "low" | "medium" | "high"
@@ -294,7 +298,7 @@ Rules:
 - Be honest about uncertainty: use "low" confidence for anything you cannot clearly see.
 
 Return a JSON object:
-{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high"}]}`
+{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "sugar_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high"}]}`
 
 function buildMealPrompt(input: {
   description: string
@@ -338,6 +342,7 @@ interface RawEstimateItem {
   protein_g?: unknown
   carbs_g?: unknown
   fat_g?: unknown
+  sugar_g?: unknown
   justification?: unknown
   confidence?: unknown
 }
@@ -355,6 +360,7 @@ function parseEstimateItem(
     protein_g: asNumber(raw.protein_g),
     carbs_g: asNumber(raw.carbs_g),
     fat_g: asNumber(raw.fat_g),
+    sugar_g: asNumber(raw.sugar_g),
     justification:
       asText(raw.justification) ||
       `Estimated about ${calories} kcal for one ${name.toLowerCase()}.`,
@@ -419,4 +425,38 @@ export async function estimateMealFromPhoto(
   })
   const raw = await callGeminiParts<unknown>(parts)
   return parseMealEstimate(raw, input.description.trim() || "Logged meal")
+}
+
+export interface HealthImportDraft {
+  measured_at: string
+  summary: string
+  focus: string
+  goals: string[]
+  recommendations: string[]
+  metrics: Array<{
+    key: HealthMetricKey
+    value: number
+    unit: string
+    label: string
+    target?: string
+  }>
+}
+
+/** Extracts a check-up photo into a reviewable draft; the image is not stored. */
+export async function analyzeHealthCheckup(
+  imageDataUrl: string,
+): Promise<HealthImportDraft> {
+  const prepared = await downscaleImage(imageDataUrl, 1600, 0.86)
+  const [meta, data] = prepared.split(",")
+  const mime = meta.match(/data:([^;]+);base64/)?.[1] ?? "image/jpeg"
+  const prompt = `You are extracting a health screening sheet into structured data for the user to review.
+Read handwritten and printed values carefully. Do not diagnose, invent missing values, or turn a report score into a medical diagnosis.
+Use ISO date YYYY-MM-DD. If only month and year are visible, use the first day of that month.
+Return JSON only with this shape:
+{"measured_at":"YYYY-MM-DD","summary":"one cautious plain-language summary","focus":"one sentence about the highest-priority areas","goals":["..."],"recommendations":["..."],"metrics":[{"key":"visceral_fat|bmi|total_cholesterol|retinal_arteriosclerosis_risk|retinal_glucose_metabolism_risk|oxito_liver_score|oxito_back_score|blood_pressure_systolic|blood_pressure_diastolic|fasting_glucose","label":"...","value":0,"unit":"...","target":"..."}]}
+Only include metrics you can actually read. Recommendations must be framed as general next steps or advice visible on the report, not medical treatment. Mention uncertainty in the summary if handwriting is unclear.`
+  return callGeminiParts<HealthImportDraft>([
+    { inline_data: { mime_type: mime, data } },
+    { text: prompt },
+  ])
 }

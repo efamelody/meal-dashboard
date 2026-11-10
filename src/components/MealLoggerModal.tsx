@@ -57,6 +57,7 @@ export default function MealLoggerModal({
   const [protein, setProtein] = useState("")
   const [carbs, setCarbs] = useState("")
   const [fat, setFat] = useState("")
+  const [sugar, setSugar] = useState("")
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -86,6 +87,7 @@ export default function MealLoggerModal({
     setProtein("")
     setCarbs("")
     setFat("")
+    setSugar("")
     setImageDataUrl(null)
     setLoading(false)
     setError(null)
@@ -105,6 +107,7 @@ export default function MealLoggerModal({
     setProtein("")
     setCarbs("")
     setFat("")
+    setSugar("")
     setImageDataUrl(null)
     setError(null)
     setEstimate(null)
@@ -165,6 +168,7 @@ export default function MealLoggerModal({
       setProtein(String(first.protein_g))
       setCarbs(String(first.carbs_g))
       setFat(String(first.fat_g))
+      setSugar(String(first.sugar_g))
       // The AI names the food, so a photo-only log still gets a real label.
       if (!name.trim()) setName(first.name)
     } catch (err) {
@@ -193,6 +197,7 @@ export default function MealLoggerModal({
     setProtein(String(item.protein_g))
     setCarbs(String(item.carbs_g))
     setFat(String(item.fat_g))
+    setSugar(String(item.sugar_g))
     setPicked((prev) => prev.filter((value) => value !== index))
     setError(null)
   }
@@ -206,6 +211,7 @@ export default function MealLoggerModal({
       protein_g: item.protein_g,
       carbs_g: item.carbs_g,
       fat_g: item.fat_g,
+      sugar_g: item.sugar_g,
       ai_dish: item.name,
       ai_portion: item.portion || null,
       ai_justification: item.justification || null,
@@ -243,6 +249,7 @@ export default function MealLoggerModal({
       setProtein("")
       setCarbs("")
       setFat("")
+      setSugar("")
     }
   }
 
@@ -263,7 +270,8 @@ export default function MealLoggerModal({
       toNumber(kcal) !== linkedItem.calories ||
       toNumber(protein) !== linkedItem.protein_g ||
       toNumber(carbs) !== linkedItem.carbs_g ||
-      toNumber(fat) !== linkedItem.fat_g
+      toNumber(fat) !== linkedItem.fat_g ||
+      toNumber(sugar) !== linkedItem.sugar_g
     return {
       id,
       food: label,
@@ -271,6 +279,7 @@ export default function MealLoggerModal({
       protein_g: toNumber(protein),
       carbs_g: toNumber(carbs),
       fat_g: toNumber(fat),
+      sugar_g: toNumber(sugar),
       ai_dish: linkedItem?.name ?? null,
       ai_portion: linkedItem?.portion || null,
       ai_justification: linkedItem?.justification || null,
@@ -310,6 +319,7 @@ export default function MealLoggerModal({
     setProtein(String(food.protein_g))
     setCarbs(String(food.carbs_g))
     setFat(String(food.fat_g))
+    setSugar(String(food.sugar_g ?? 0))
     setImageDataUrl(null)
     setError(null)
     setComposing(true)
@@ -328,6 +338,7 @@ export default function MealLoggerModal({
             protein_g: food.protein_g,
             carbs_g: food.carbs_g,
             fat_g: food.fat_g,
+            sugar_g: food.sugar_g ?? 0,
             justification: food.ai_justification,
             confidence: food.ai_confidence ?? "medium",
           },
@@ -574,7 +585,8 @@ export default function MealLoggerModal({
                           </span>
                         </div>
                         <p className="tabular text-[11px] text-muted-foreground">
-                          P{item.protein_g} · C{item.carbs_g} · F{item.fat_g}
+                          P{item.protein_g} · C{item.carbs_g} · F{item.fat_g} ·
+                          S{item.sugar_g}g
                           {item.portion ? ` · ${item.portion}` : ""}
                           <span
                             className={`ml-1 uppercase tracking-wide ${CONFIDENCE_TONE[item.confidence]}`}
@@ -691,6 +703,8 @@ export default function MealLoggerModal({
                   setProtein(String(linkedItem.protein_g))
                   setCarbs(String(linkedItem.carbs_g))
                   setFat(String(linkedItem.fat_g))
+                  setSugar(String(linkedItem.sugar_g))
+                  setSugar(String(linkedItem.sugar_g))
                 }}
                 className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
@@ -700,11 +714,12 @@ export default function MealLoggerModal({
             )}
           </div>
 
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {([
               { label: "Protein", value: protein, set: setProtein },
               { label: "Carbs", value: carbs, set: setCarbs },
               { label: "Fat", value: fat, set: setFat },
+              { label: "Sugar", value: sugar, set: setSugar },
             ] as const).map((macro) => (
               <label key={macro.label} className="block">
                 <span className="text-[11px] font-medium text-muted-foreground">

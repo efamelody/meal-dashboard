@@ -34,6 +34,7 @@ import type {
   RsvpStatus,
 } from "./types"
 import { STAPLE_ITEMS } from "./staples"
+import type { HealthProfile } from "./health"
 
 const DAYS: DayOfWeek[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner", "Snack"]
@@ -639,6 +640,30 @@ export async function saveUserProfile(
     .single()
   if (error) throw error
   return mapUserProfile(data)
+}
+
+// ── Health baseline ────────────────────────────────────────────────────────
+
+export async function getHealthProfile(): Promise<HealthProfile | null> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("health_profiles")
+    .select("profile")
+    .eq("user_id", userId)
+    .maybeSingle()
+  if (error) throw new Error(`getHealthProfile: ${error.message}`)
+  return data?.profile as HealthProfile | null ?? null
+}
+
+export async function saveHealthProfile(profile: HealthProfile): Promise<void> {
+  const userId = await getUserId()
+  const { error } = await supabase
+    .from("health_profiles")
+    .upsert(
+      { user_id: userId, profile, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" },
+    )
+  if (error) throw new Error(`saveHealthProfile: ${error.message}`)
 }
 
 // ── Activity ─────────────────────────────────────────────────────────────
@@ -1813,7 +1838,10 @@ export async function updatePlan(
     patch.duration_min = changes.duration_min
   if (Object.keys(patch).length === 0) return
 
-  const { error } = await supabase.from("activity_plans").update(patch).eq("id", id)
+  const { error } = await supabase
+    .from("activity_plans")
+    .update(patch)
+    .eq("id", id)
   if (error) throw new Error(`updatePlan: ${error.message}`)
 }
 

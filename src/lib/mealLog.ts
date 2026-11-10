@@ -43,12 +43,13 @@ export function newFoodId(): string {
 
 /** The only place slot totals are derived, so they cannot drift from `foods`. */
 export function buildLoggedMeal(foods: LoggedFoodItem[]): LoggedMeal {
-  const totals = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
+  const totals = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sugar_g: 0 }
   for (const food of foods) {
     totals.calories += food.calories
     totals.protein_g += food.protein_g
     totals.carbs_g += food.carbs_g
     totals.fat_g += food.fat_g
+    totals.sugar_g += food.sugar_g ?? 0
   }
   return { foods, ...totals }
 }
@@ -59,6 +60,7 @@ interface LegacyLoggedMeal {
   protein_g: number
   carbs_g: number
   fat_g: number
+  sugar_g?: number | null
 }
 
 function isLoggedMeal(value: unknown): value is LoggedMeal {
@@ -171,6 +173,7 @@ interface MealLogRow {
   protein_g: number
   carbs_g: number
   fat_g: number
+  sugar_g?: number | null
   sort_order?: number
   ai_dish?: string | null
   ai_portion?: string | null
@@ -190,6 +193,7 @@ interface MealLogRowOut {
   protein_g: number
   carbs_g: number
   fat_g: number
+  sugar_g?: number | null
   sort_order?: number | null
   ai_dish?: string | null
   ai_portion?: string | null
@@ -205,6 +209,7 @@ const BASE_COLUMNS =
 
 const AI_COLUMNS =
   "ai_dish, ai_portion, ai_justification, ai_confidence, user_correction, source"
+const SUGAR_COLUMNS = "sugar_g"
 
 /**
  * The columns a project has, depending on which migrations it has applied.
@@ -216,13 +221,19 @@ interface LogCapabilities {
   sortOrder: boolean
   /** Migration 009: the AI reasoning columns. */
   aiFields: boolean
+  /** Migration 013: sugar per logged food. */
+  sugarFields: boolean
 }
 
 const CAPABILITY_LADDER: LogCapabilities[] = [
-  { sortOrder: true, aiFields: true },
-  { sortOrder: false, aiFields: true },
-  { sortOrder: true, aiFields: false },
-  { sortOrder: false, aiFields: false },
+  { sortOrder: true, aiFields: true, sugarFields: true },
+  { sortOrder: true, aiFields: true, sugarFields: false },
+  { sortOrder: false, aiFields: true, sugarFields: true },
+  { sortOrder: false, aiFields: true, sugarFields: false },
+  { sortOrder: true, aiFields: false, sugarFields: true },
+  { sortOrder: true, aiFields: false, sugarFields: false },
+  { sortOrder: false, aiFields: false, sugarFields: true },
+  { sortOrder: false, aiFields: false, sugarFields: false },
 ]
 
 /** The migrations a project still needs for the given capabilities. */
@@ -230,6 +241,7 @@ function missingMigrations(capabilities: LogCapabilities): string[] {
   const missing: string[] = []
   if (!capabilities.sortOrder) missing.push("008")
   if (!capabilities.aiFields) missing.push("009")
+  if (!capabilities.sugarFields) missing.push("013")
   return missing
 }
 
@@ -278,6 +290,7 @@ function toRow(
     ai_confidence: food.ai_confidence ?? null,
     user_correction: food.user_correction ?? null,
     source: food.source ?? null,
+    sugar_g: food.sugar_g ?? null,
     updated_at: new Date().toISOString(),
   }
 }
@@ -319,6 +332,7 @@ function groupRows(rows: MealLogRowOut[]): Record<string, LoggedMeal> {
       ai_confidence: asConfidence(row.ai_confidence),
       user_correction: row.user_correction ?? null,
       source: asSource(row.source),
+      sugar_g: row.sugar_g != null ? Number(row.sugar_g) : null,
     })
     grouped.set(key, foods)
   }
@@ -346,6 +360,7 @@ export async function fetchMealLog(userId: string): Promise<FetchedMealLog> {
       capabilities.sortOrder ? "sort_order" : null,
       "created_at",
       capabilities.aiFields ? AI_COLUMNS : null,
+      capabilities.sugarFields ? SUGAR_COLUMNS : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -368,7 +383,7 @@ export async function fetchMealLog(userId: string): Promise<FetchedMealLog> {
     lastError instanceof Error
       ? lastError.message
       : "Could not read the meal log.",
-    ["008", "009"],
+    ["008", "009", "013"],
   )
 }
 
@@ -392,6 +407,7 @@ function toPayload(
     delete next.user_correction
     delete next.source
   }
+  if (!capabilities.sugarFields) delete next.sugar_g
   return next
 }
 
@@ -424,7 +440,7 @@ async function upsertRows(rows: MealLogRow[]): Promise<void> {
     lastError instanceof Error
       ? lastError.message
       : "Could not save the meal log.",
-    ["008", "009"],
+    ["008", "009", "013"],
   )
 }
 

@@ -91,6 +91,8 @@ export interface LoggedFoodItem {
   protein_g: number
   carbs_g: number
   fat_g: number
+  /** Optional until the food source provides sugar data. */
+  sugar_g?: number | null
   /** What the AI identified the food as. Null when the user named it. */
   ai_dish?: string | null
   /** The portion the AI assumed, e.g. "1 packet (~250 g)". */
@@ -113,6 +115,7 @@ export interface LoggedMeal {
   protein_g: number
   carbs_g: number
   fat_g: number
+  sugar_g: number
 }
 
 export interface UserProfile {
