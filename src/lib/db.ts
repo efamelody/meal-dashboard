@@ -32,9 +32,14 @@ import type {
   PlanParticipant,
   PlanComment,
   RsvpStatus,
+  Household,
+  HouseholdMember,
+  ScannedInventoryItem,
+  WeightLogEntry,
+  WeeklyCheckin,
 } from "./types"
 import { STAPLE_ITEMS } from "./staples"
-import type { HealthProfile } from "./health"
+import type { HealthProfile } from "./healthProfile"
 
 const DAYS: DayOfWeek[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner", "Snack"]
@@ -78,6 +83,7 @@ function mapInventory(row: any): InventoryItem {
     quantity: row.quantity != null ? Number(row.quantity) : undefined,
     unit: row.unit ?? undefined,
     stock_status: row.stock_status as StockStatus,
+    household_id: row.household_id ?? null,
   }
 }
 
@@ -257,13 +263,35 @@ export async function getIngredientSuggestions(): Promise<string[]> {
 
 // ── Inventory ─────────────────────────────────────────────────────────────
 
-export async function getInventory(): Promise<InventoryItem[]> {
+/**
+ * The household the signed-in user belongs to, or null. Falls back to null
+ * (gracefully) if the households migration hasn't been run yet, in which case
+ * inventory stays scoped to the user.
+ */
+async function getMyHouseholdId(): Promise<string | null> {
   const userId = await getUserId()
   const { data, error } = await supabase
-    .from("inventory")
-    .select("*")
+    .from("household_members")
+    .select("household_id")
     .eq("user_id", userId)
-    .order("created_at", { ascending: true })
+    .maybeSingle()
+  if (error) {
+    console.error("getMyHouseholdId:", error.message)
+    return null
+  }
+  return data?.household_id ?? null
+}
+
+export async function getInventory(): Promise<InventoryItem[]> {
+  const householdId = await getMyHouseholdId()
+  let query = supabase.from("inventory").select("*")
+  if (householdId) {
+    query = query.eq("household_id", householdId)
+  } else {
+    const userId = await getUserId()
+    query = query.eq("user_id", userId)
+  }
+  const { data, error } = await query.order("created_at", { ascending: true })
   if (error) {
     console.error("getInventory:", error.message)
     return []
@@ -275,10 +303,12 @@ export async function addInventoryItem(
   item: Omit<InventoryItem, "id" | "user_id">,
 ): Promise<InventoryItem> {
   const userId = await getUserId()
+  const householdId = await getMyHouseholdId()
   const { data, error } = await supabase
     .from("inventory")
     .insert({
       user_id: userId,
+      household_id: householdId,
       item_name: item.item_name,
       quantity: item.quantity ?? null,
       unit: item.unit ?? null,
@@ -307,6 +337,165 @@ export async function updateInventoryItem(
 export async function deleteInventoryItem(id: string): Promise<void> {
   const { error } = await supabase.from("inventory").delete().eq("id", id)
   if (error) throw error
+}
+
+// ── Households ─────────────────────────────────────────────────────────────
+
+async function fetchHouseholdWithMembers(
+  householdId: string,
+): Promise<Household> {
+  const userId = await getUserId()
+  const { data: h, error } = await supabase
+    .from("households")
+    .select("*")
+    .eq("id", householdId)
+    .single()
+  if (error) throw new Error(`fetchHousehold: ${error.message}`)
+
+  const { data: memberRows, error: memErr } = await supabase
+    .from("household_members")
+    .select("*")
+    .eq("household_id", householdId)
+  if (memErr) throw new Error(`fetchHousehold members: ${memErr.message}`)
+
+  const profiles = await attachProfiles(
+    (memberRows ?? []).map((m) => m.user_id),
+  )
+  const me = (memberRows ?? []).find((m) => m.user_id === userId)
+
+  return {
+    id: h.id,
+    name: h.name,
+    created_by: h.created_by,
+    my_role: me?.role ?? "member",
+    members: (memberRows ?? []).map(
+      (m): HouseholdMember => ({
+        id: m.user_id,
+        role: m.role as HouseholdMember["role"],
+        profile: profiles.get(m.user_id) ?? {
+          id: m.user_id,
+          display_name: "",
+          handle: "member",
+          bio: "",
+        },
+      }),
+    ),
+  }
+}
+
+export async function getMyHousehold(): Promise<Household | null> {
+  const householdId = await getMyHouseholdId()
+  if (!householdId) return null
+  try {
+    return await fetchHouseholdWithMembers(householdId)
+  } catch (err) {
+    console.error("getMyHousehold:", err)
+    return null
+  }
+}
+
+/**
+ * Create a household for the current user (who becomes the owner) and move any
+ * personal inventory rows into it so nothing is lost when the pantry goes
+ * shared.
+ */
+export async function createHousehold(name: string): Promise<Household> {
+  const userId = await getUserId()
+  const existingId = await getMyHouseholdId()
+  if (existingId) return fetchHouseholdWithMembers(existingId)
+
+  const clean = name.trim() || "My household"
+  const { data: h, error } = await supabase
+    .from("households")
+    .insert({ name: clean, created_by: userId })
+    .select()
+    .single()
+  if (error) throw new Error(`createHousehold: ${error.message}`)
+
+  const { error: memErr } = await supabase
+    .from("household_members")
+    .insert({ household_id: h.id, user_id: userId, role: "owner" })
+  if (memErr) throw new Error(`createHousehold membership: ${memErr.message}`)
+
+  await supabase
+    .from("inventory")
+    .update({ household_id: h.id })
+    .eq("user_id", userId)
+    .is("household_id", null)
+
+  return fetchHouseholdWithMembers(h.id)
+}
+
+/** Add a friend to the caller's household. The friend joins instantly. */
+export async function inviteToHousehold(friendUserId: string): Promise<void> {
+  const householdId = await getMyHouseholdId()
+  if (!householdId) throw new Error("inviteToHousehold: no household")
+  const { error } = await supabase.from("household_members").insert({
+    household_id: householdId,
+    user_id: friendUserId,
+    role: "member",
+  })
+  if (error) throw new Error(`inviteToHousehold: ${error.message}`)
+}
+
+/** A friend self-joins via a share link. */
+export async function joinHousehold(householdId: string): Promise<void> {
+  const userId = await getUserId()
+  const { error } = await supabase.from("household_members").insert({
+    household_id: householdId,
+    user_id: userId,
+    role: "member",
+  })
+  if (error) throw new Error(`joinHousehold: ${error.message}`)
+}
+
+/**
+ * Merge a batch of AI-detected pantry items into the current inventory.
+ * Matching names (case-insensitive) increment quantity when the unit matches,
+ * otherwise just flip to in-stock; unknown names are inserted as new rows.
+ * Returns the refreshed inventory.
+ */
+export async function applyScannedItems(
+  items: ScannedInventoryItem[],
+): Promise<InventoryItem[]> {
+  const existing = await getInventory()
+  const byKey = new Map<string, InventoryItem>()
+  for (const item of existing) {
+    byKey.set(item.item_name.trim().toLowerCase(), item)
+  }
+
+  for (const scanned of items) {
+    const name = scanned.name.trim()
+    if (!name) continue
+    const key = name.toLowerCase()
+    const found = byKey.get(key)
+    if (!found) {
+      const row = await addInventoryItem({
+        item_name: name,
+        quantity: scanned.quantity ?? null,
+        unit: scanned.unit ?? null,
+        stock_status: "in_stock",
+      })
+      byKey.set(key, row)
+      continue
+    }
+    const sameUnit =
+      scanned.unit != null &&
+      found.unit != null &&
+      scanned.unit.trim().toLowerCase() === found.unit.trim().toLowerCase()
+    const patch: Partial<InventoryItem> = { stock_status: "in_stock" }
+    if (scanned.quantity != null && scanned.quantity > 0) {
+      if (sameUnit) {
+        patch.quantity = (found.quantity ?? 0) + scanned.quantity
+      } else if (found.quantity == null) {
+        patch.quantity = scanned.quantity
+      }
+    }
+    await updateInventoryItem(found.id, patch)
+    Object.assign(found, patch)
+  }
+
+  return getInventory()
 }
 
 // ── Meal Plan ─────────────────────────────────────────────────────────────
@@ -642,7 +831,7 @@ export async function saveUserProfile(
   return mapUserProfile(data)
 }
 
-// ── Health baseline ────────────────────────────────────────────────────────
+// ── Health profile ─────────────────────────────────────────────────────────
 
 export async function getHealthProfile(): Promise<HealthProfile | null> {
   const userId = await getUserId()
@@ -664,6 +853,174 @@ export async function saveHealthProfile(profile: HealthProfile): Promise<void> {
       { onConflict: "user_id" },
     )
   if (error) throw new Error(`saveHealthProfile: ${error.message}`)
+}
+
+// ── Weight log ──────────────────────────────────────────────────────────
+
+function mapWeightLog(row: any): WeightLogEntry {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    date: row.date,
+    weight_kg: Number(row.weight_kg),
+  }
+}
+
+export async function getWeightLogs(
+  start: ISODate,
+  end: ISODate,
+): Promise<WeightLogEntry[]> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("weight_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("date", start)
+    .lte("date", end)
+    .order("date", { ascending: true })
+  if (error) {
+    console.error("getWeightLogs:", error.message)
+    return []
+  }
+  return (data ?? []).map(mapWeightLog)
+}
+
+/** Keeps `user_profiles.weight_kg` in step with the newest weigh-in. */
+async function syncProfileWeightFromLogs(userId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("weight_logs")
+    .select("weight_kg")
+    .eq("user_id", userId)
+    .order("date", { ascending: false })
+    .limit(1)
+  if (error || !data?.length) return
+  await supabase
+    .from("user_profiles")
+    .update({ weight_kg: data[0].weight_kg })
+    .eq("user_id", userId)
+}
+
+export async function addWeightLog(
+  date: ISODate,
+  weight_kg: number,
+): Promise<WeightLogEntry> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("weight_logs")
+    .upsert({ user_id: userId, date, weight_kg }, { onConflict: "user_id,date" })
+    .select()
+    .single()
+  if (error) throw error
+  await syncProfileWeightFromLogs(userId)
+  return mapWeightLog(data)
+}
+
+export async function deleteWeightLog(id: string): Promise<void> {
+  const userId = await getUserId()
+  const { error } = await supabase
+    .from("weight_logs")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", id)
+  if (error) throw error
+  await syncProfileWeightFromLogs(userId)
+}
+
+// ── Weekly check-ins ─────────────────────────────────────────────────────
+
+function mapWeeklyCheckin(row: any): WeeklyCheckin {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    week_start: row.week_start,
+    weight_delta_kg:
+      row.weight_delta_kg != null ? Number(row.weight_delta_kg) : null,
+    avg_calories: row.avg_calories != null ? Number(row.avg_calories) : null,
+    avg_protein_g:
+      row.avg_protein_g != null ? Number(row.avg_protein_g) : null,
+    activity_min: row.activity_min != null ? Number(row.activity_min) : null,
+    rating: Number(row.rating),
+    rating_label: row.rating_label ?? "",
+    note: row.note ?? null,
+    report: row.report ?? {},
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+export async function getWeeklyCheckins(): Promise<WeeklyCheckin[]> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("weekly_checkins")
+    .select("*")
+    .eq("user_id", userId)
+    .order("week_start", { ascending: false })
+  if (error) {
+    console.error("getWeeklyCheckins:", error.message)
+    return []
+  }
+  return (data ?? []).map(mapWeeklyCheckin)
+}
+
+export async function getWeeklyCheckin(
+  weekStart: ISODate,
+): Promise<WeeklyCheckin | null> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("weekly_checkins")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .maybeSingle()
+  if (error) {
+    console.error("getWeeklyCheckin:", error.message)
+    return null
+  }
+  return data ? mapWeeklyCheckin(data) : null
+}
+
+export async function saveWeeklyCheckin(
+  checkin: Omit<
+    WeeklyCheckin,
+    "id" | "user_id" | "created_at" | "updated_at"
+  >,
+): Promise<WeeklyCheckin> {
+  const userId = await getUserId()
+  const { data, error } = await supabase
+    .from("weekly_checkins")
+    .upsert(
+      {
+        user_id: userId,
+        week_start: checkin.week_start,
+        weight_delta_kg: checkin.weight_delta_kg,
+        avg_calories: checkin.avg_calories,
+        avg_protein_g: checkin.avg_protein_g,
+        activity_min: checkin.activity_min,
+        rating: checkin.rating,
+        rating_label: checkin.rating_label,
+        note: checkin.note,
+        report: checkin.report,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,week_start" },
+    )
+    .select()
+    .single()
+  if (error) throw error
+  return mapWeeklyCheckin(data)
+}
+
+export async function updateWeeklyCheckinNote(
+  weekStart: ISODate,
+  note: string,
+): Promise<void> {
+  const userId = await getUserId()
+  const { error } = await supabase
+    .from("weekly_checkins")
+    .update({ note, updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+  if (error) throw error
 }
 
 // ── Activity ─────────────────────────────────────────────────────────────

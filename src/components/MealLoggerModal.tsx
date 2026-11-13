@@ -12,10 +12,15 @@ import {
   X,
 } from "lucide-react"
 import { estimateMealFromPhoto } from "../lib/gemini"
-import type { MealEstimate, MealEstimateItem } from "../lib/gemini"
+import type {
+  MealEstimate,
+  MealEstimateItem,
+  MealItemFlag,
+} from "../lib/gemini"
+import { loadHealthProfile, type HealthAvoidItem } from "../lib/healthProfile"
 import { newFoodId } from "../lib/mealLog"
 import type { LoggedFoodItem } from "../lib/types"
-import { Button, Modal } from "./ui"
+import { Button, FoodFlagBadge, Modal } from "./ui"
 
 interface MealLoggerModalProps {
   open: boolean
@@ -69,6 +74,8 @@ export default function MealLoggerModal({
   const [linked, setLinked] = useState<number | null>(null)
   const [correction, setCorrection] = useState("")
   const [showCorrection, setShowCorrection] = useState(false)
+  /** Saved from the check-up analysis — foods to steer away from. */
+  const [avoidList, setAvoidList] = useState<HealthAvoidItem[]>([])
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
 
@@ -96,6 +103,7 @@ export default function MealLoggerModal({
     setLinked(null)
     setCorrection("")
     setShowCorrection(false)
+    setAvoidList(loadHealthProfile().avoid_list ?? [])
   }, [open, startComposing])
 
   if (!open) return null
@@ -153,6 +161,7 @@ export default function MealLoggerModal({
         description: name,
         imageDataUrl: imageDataUrl ?? undefined,
         correction: note?.trim() || undefined,
+        avoidList,
       })
       if (!result.items.length) {
         setError(
@@ -218,6 +227,8 @@ export default function MealLoggerModal({
       ai_confidence: item.confidence,
       user_correction: note || null,
       source: note ? "corrected" : "ai",
+      flag_level: item.flag?.level ?? null,
+      flag_reason: item.flag?.reason ?? null,
     }
   }
 
@@ -286,6 +297,8 @@ export default function MealLoggerModal({
       ai_confidence: linkedItem?.confidence ?? null,
       user_correction: note || null,
       source: linkedItem ? (changed || note ? "corrected" : "ai") : "manual",
+      flag_level: linkedItem?.flag?.level ?? null,
+      flag_reason: linkedItem?.flag?.reason ?? null,
     }
   }
 
@@ -328,6 +341,10 @@ export default function MealLoggerModal({
     setPicked([])
     if (food.ai_justification) {
       // Re-open the reasoning the AI gave for this food last time.
+      let flag: MealItemFlag | null = null
+      if (food.flag_level) {
+        flag = { level: food.flag_level, reason: food.flag_reason ?? "" }
+      }
       setEstimate({
         summary: "",
         items: [
@@ -341,6 +358,7 @@ export default function MealLoggerModal({
             sugar_g: food.sugar_g ?? 0,
             justification: food.ai_justification,
             confidence: food.ai_confidence ?? "medium",
+            flag,
           },
         ],
       })
@@ -371,6 +389,16 @@ export default function MealLoggerModal({
         toNumber(carbs) !== linkedItem.carbs_g ||
         toNumber(fat) !== linkedItem.fat_g),
   )
+  const avoidHint =
+    avoidList.length > 0
+      ? avoidList
+          .map((item) =>
+            item.severity === "avoid"
+              ? `avoid ${item.food}`
+              : `limit ${item.food}`,
+          )
+          .join(" · ")
+      : ""
 
   return (
     <Modal
@@ -406,7 +434,7 @@ export default function MealLoggerModal({
             {items.map((food) => (
               <li
                 key={food.id}
-                className="flex items-center gap-2 rounded-xl border border-border bg-muted/50 p-3"
+                className="flex items-start gap-2 rounded-xl border border-border bg-muted/50 p-3"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
@@ -416,6 +444,15 @@ export default function MealLoggerModal({
                     {food.calories} kcal · P{food.protein_g} C{food.carbs_g} F
                     {food.fat_g}
                   </p>
+                  {food.flag_level && (
+                    <div className="mt-1">
+                      <FoodFlagBadge
+                        level={food.flag_level}
+                        reason={food.flag_reason}
+                        showReason
+                      />
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -536,6 +573,13 @@ export default function MealLoggerModal({
             </div>
           )}
 
+          {avoidHint && (
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              Your check-up analysis: {avoidHint}. Matching foods get flagged
+              here.
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() => handleEstimate()}
@@ -594,6 +638,15 @@ export default function MealLoggerModal({
                             {item.confidence}
                           </span>
                         </p>
+                        {item.flag && (
+                          <div className="mt-1">
+                            <FoodFlagBadge
+                              level={item.flag.level}
+                              reason={item.flag.reason}
+                              showReason
+                            />
+                          </div>
+                        )}
                         <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                           {item.justification}
                         </p>
@@ -703,7 +756,6 @@ export default function MealLoggerModal({
                   setProtein(String(linkedItem.protein_g))
                   setCarbs(String(linkedItem.carbs_g))
                   setFat(String(linkedItem.fat_g))
-                  setSugar(String(linkedItem.sugar_g))
                   setSugar(String(linkedItem.sugar_g))
                 }}
                 className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"

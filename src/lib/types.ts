@@ -40,6 +40,7 @@ export interface InventoryItem {
   quantity?: number | null
   unit?: string | null
   stock_status: StockStatus
+  household_id?: string | null
 }
 
 export interface MealPlanSlot {
@@ -105,6 +106,10 @@ export interface LoggedFoodItem {
   user_correction?: string | null
   /** Where the numbers came from. */
   source?: "ai" | "corrected" | "manual" | null
+  /** Set when the food clashes with the user's saved avoid list. */
+  flag_level?: "warning" | "danger" | null
+  /** Why it was flagged, e.g. "high sugar — visceral fat". */
+  flag_reason?: string | null
 }
 
 export interface LoggedMeal {
@@ -147,6 +152,43 @@ export interface MacroTotals {
   protein_g: number
   carbs_g: number
   fat_g: number
+}
+
+/** One weigh-in — the user's recorded weight on a date. */
+export interface WeightLogEntry {
+  id: string
+  user_id: string
+  date: ISODate
+  weight_kg: number
+}
+
+/** AI-written weekly progress report, non-jargony and health-first. */
+export interface WeeklyProgressReport {
+  /** Overall progress score the AI assigns from the week's summary (1–5). */
+  rating: number
+  /** Short reason behind the score, e.g. "Strong week — consistent deficit". */
+  rating_label: string
+  headline: string
+  weight_note: string
+  highlights: string[]
+  next_steps: string[]
+}
+
+/** A saved weekly check-in: the metric snapshot plus the AI score + report. */
+export interface WeeklyCheckin {
+  id: string
+  user_id: string
+  week_start: ISODate
+  weight_delta_kg: number | null
+  avg_calories: number | null
+  avg_protein_g: number | null
+  activity_min: number | null
+  rating: number
+  rating_label: string
+  note: string | null
+  report: WeeklyProgressReport
+  created_at?: string
+  updated_at?: string
 }
 
 export interface DashboardSummary {
@@ -275,4 +317,28 @@ export interface FeedComment {
   content: string
   created_at: string
   author: AppProfile
+}
+
+/* ── Households ─────────────────────────────────────────────────────────── */
+
+export interface HouseholdMember {
+  /** The member's user id. */
+  id: string
+  role: "owner" | "member"
+  profile: AppProfile
+}
+
+export interface Household {
+  id: string
+  name: string
+  created_by: string
+  my_role: "owner" | "member"
+  members: HouseholdMember[]
+}
+
+/** One item the AI detected in a pantry photo, before it is merged. */
+export interface ScannedInventoryItem {
+  name: string
+  quantity: number | null
+  unit: string | null
 }

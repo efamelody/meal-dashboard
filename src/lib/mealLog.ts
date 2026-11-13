@@ -181,6 +181,8 @@ interface MealLogRow {
   ai_confidence?: string | null
   user_correction?: string | null
   source?: string | null
+  flag_level?: string | null
+  flag_reason?: string | null
   updated_at: string
 }
 
@@ -201,6 +203,8 @@ interface MealLogRowOut {
   ai_confidence?: string | null
   user_correction?: string | null
   source?: string | null
+  flag_level?: string | null
+  flag_reason?: string | null
   created_at?: string | null
 }
 
@@ -210,6 +214,7 @@ const BASE_COLUMNS =
 const AI_COLUMNS =
   "ai_dish, ai_portion, ai_justification, ai_confidence, user_correction, source"
 const SUGAR_COLUMNS = "sugar_g"
+const FLAG_COLUMNS = "flag_level, flag_reason"
 
 /**
  * The columns a project has, depending on which migrations it has applied.
@@ -223,17 +228,28 @@ interface LogCapabilities {
   aiFields: boolean
   /** Migration 013: sugar per logged food. */
   sugarFields: boolean
+  /** Migration 015: the health-baseline flag columns. */
+  flagFields: boolean
 }
 
+/** Ladder rungs from the newest shape downwards. */
 const CAPABILITY_LADDER: LogCapabilities[] = [
-  { sortOrder: true, aiFields: true, sugarFields: true },
-  { sortOrder: true, aiFields: true, sugarFields: false },
-  { sortOrder: false, aiFields: true, sugarFields: true },
-  { sortOrder: false, aiFields: true, sugarFields: false },
-  { sortOrder: true, aiFields: false, sugarFields: true },
-  { sortOrder: true, aiFields: false, sugarFields: false },
-  { sortOrder: false, aiFields: false, sugarFields: true },
-  { sortOrder: false, aiFields: false, sugarFields: false },
+  { sortOrder: true, aiFields: true, sugarFields: true, flagFields: true },
+  { sortOrder: true, aiFields: true, sugarFields: true, flagFields: false },
+  { sortOrder: true, aiFields: true, sugarFields: false, flagFields: true },
+  { sortOrder: true, aiFields: true, sugarFields: false, flagFields: false },
+  { sortOrder: false, aiFields: true, sugarFields: true, flagFields: true },
+  { sortOrder: false, aiFields: true, sugarFields: true, flagFields: false },
+  { sortOrder: false, aiFields: true, sugarFields: false, flagFields: true },
+  { sortOrder: false, aiFields: true, sugarFields: false, flagFields: false },
+  { sortOrder: true, aiFields: false, sugarFields: true, flagFields: true },
+  { sortOrder: true, aiFields: false, sugarFields: true, flagFields: false },
+  { sortOrder: true, aiFields: false, sugarFields: false, flagFields: true },
+  { sortOrder: true, aiFields: false, sugarFields: false, flagFields: false },
+  { sortOrder: false, aiFields: false, sugarFields: true, flagFields: true },
+  { sortOrder: false, aiFields: false, sugarFields: true, flagFields: false },
+  { sortOrder: false, aiFields: false, sugarFields: false, flagFields: true },
+  { sortOrder: false, aiFields: false, sugarFields: false, flagFields: false },
 ]
 
 /** The migrations a project still needs for the given capabilities. */
@@ -242,6 +258,7 @@ function missingMigrations(capabilities: LogCapabilities): string[] {
   if (!capabilities.sortOrder) missing.push("008")
   if (!capabilities.aiFields) missing.push("009")
   if (!capabilities.sugarFields) missing.push("013")
+  if (!capabilities.flagFields) missing.push("015")
   return missing
 }
 
@@ -291,6 +308,8 @@ function toRow(
     user_correction: food.user_correction ?? null,
     source: food.source ?? null,
     sugar_g: food.sugar_g ?? null,
+    flag_level: food.flag_level ?? null,
+    flag_reason: food.flag_reason ?? null,
     updated_at: new Date().toISOString(),
   }
 }
@@ -307,6 +326,12 @@ function asSource(value: unknown): LoggedFoodItem["source"] {
   return text === "ai" || text === "corrected" || text === "manual"
     ? text
     : null
+}
+
+/** Narrows a stored flag level to the values the app understands. */
+function asFlagLevel(value: unknown): LoggedFoodItem["flag_level"] {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : ""
+  return text === "warning" || text === "danger" ? text : null
 }
 
 function groupRows(rows: MealLogRowOut[]): Record<string, LoggedMeal> {
@@ -333,6 +358,8 @@ function groupRows(rows: MealLogRowOut[]): Record<string, LoggedMeal> {
       user_correction: row.user_correction ?? null,
       source: asSource(row.source),
       sugar_g: row.sugar_g != null ? Number(row.sugar_g) : null,
+      flag_level: row.flag_level != null ? asFlagLevel(row.flag_level) : null,
+      flag_reason: row.flag_reason ?? null,
     })
     grouped.set(key, foods)
   }
@@ -361,6 +388,7 @@ export async function fetchMealLog(userId: string): Promise<FetchedMealLog> {
       "created_at",
       capabilities.aiFields ? AI_COLUMNS : null,
       capabilities.sugarFields ? SUGAR_COLUMNS : null,
+      capabilities.flagFields ? FLAG_COLUMNS : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -383,7 +411,7 @@ export async function fetchMealLog(userId: string): Promise<FetchedMealLog> {
     lastError instanceof Error
       ? lastError.message
       : "Could not read the meal log.",
-    ["008", "009", "013"],
+    ["008", "009", "013", "015"],
   )
 }
 
@@ -408,6 +436,10 @@ function toPayload(
     delete next.source
   }
   if (!capabilities.sugarFields) delete next.sugar_g
+  if (!capabilities.flagFields) {
+    delete next.flag_level
+    delete next.flag_reason
+  }
   return next
 }
 
@@ -440,7 +472,7 @@ async function upsertRows(rows: MealLogRow[]): Promise<void> {
     lastError instanceof Error
       ? lastError.message
       : "Could not save the meal log.",
-    ["008", "009", "013"],
+    ["008", "009", "013", "015"],
   )
 }
 

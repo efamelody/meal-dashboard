@@ -13,7 +13,7 @@ import type { UserProfile, Sex, Goal, ActivityLevel } from "../lib/types"
 import { useAuth } from "../context/AuthContext"
 import { demoProfile } from "../lib/demo"
 import { useToast } from "../components/Toast"
-import HealthBaselineCard from "../components/HealthBaselineCard"
+import HealthProfileCard from "../components/HealthProfileCard"
 import { PageContainer, PageHeader } from "../components/PageHeader"
 import {
   Badge,
@@ -413,7 +413,7 @@ export default function ProfilePage() {
           </form>
         </Card>
       </div>
-      <HealthBaselineCard />
+      <HealthProfileCard />
     </PageContainer>
   )
 }

@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar"
 import BottomNav from "./BottomNav"
 import ProfileMenu from "./ProfileMenu"
 import AiFooter from "./AiFooter"
+import AiChatFab from "./AiChatFab"
 import MealLogBanner from "./MealLogBanner"
 import Brand from "./Brand"
 import { useAuth } from "../context/AuthContext"
@@ -116,12 +117,13 @@ export default function DashboardLayout({
           <MobileTopBar />
           {!session && <PreviewBanner />}
           <MealLogBanner />
-          <main className="flex-1 min-w-0 pb-4">
+          <main className="flex-1 min-w-0 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-4">
             {children ?? <Outlet />}
             <AiFooter />
           </main>
         </div>
         <BottomNav />
+        <AiChatFab />
       </div>
     </NotificationsProvider>
   )

@@ -26,7 +26,7 @@ import {
   startOfWeek,
   toISODate,
 } from "../lib/dates"
-import { slotKey } from "../lib/mealLog"
+import { slotKey, totalsForDate } from "../lib/mealLog"
 import { useMealLog } from "../context/MealLogContext"
 import type {
   DashboardSummary,
@@ -59,10 +59,10 @@ const FILL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
 const MAX_SERVINGS = 12
 
 const TYPE_ACCENT: Record<MealType, string> = {
-  Breakfast: "border-l-amber-400",
-  Lunch: "border-l-emerald-400",
-  Dinner: "border-l-sky-400",
-  Snack: "border-l-rose-400",
+  Breakfast: "border-l-terracotta",
+  Lunch: "border-l-success",
+  Dinner: "border-l-[#3f5b78]",
+  Snack: "border-l-warning",
 }
 
 function verdictLine(summary: DashboardSummary): string {
@@ -307,6 +307,17 @@ export default function PlannerPage() {
     0,
   )
 
+  const eatenByDay = DAYS.reduce(
+    (acc, day, i) => {
+      const date = dateInWeek(weekStart, i)
+      acc[day] = totalsForDate(log, date).calories
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+  const eatenKcalFor = (date: ISODate): number =>
+    totalsForDate(log, date).calories
+
   const macroRows =
     summary?.weekMacros && summary.dailyMacroTarget
       ? [
@@ -418,6 +429,7 @@ export default function PlannerPage() {
               <WeeklyCaloriesChart
                 week={summary.week}
                 targetKcal={summary.targetKcal}
+                loggedKcal={eatenByDay}
               />
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-border pt-3">
                 <div>
@@ -634,8 +646,8 @@ export default function PlannerPage() {
                                 </div>
                               </>
                             ) : (
-                              <p className="text-[10px] text-muted-foreground italic">
-                                Empty
+                              <p className="text-[10px] text-muted-foreground">
+                                Nothing planned yet
                               </p>
                             )}
                           </div>
@@ -646,9 +658,9 @@ export default function PlannerPage() {
                                 handleChange(date, type, e.target.value)
                               }
                               aria-label={`${type} meal on ${dayFullLabel(day)}`}
-                              className="flex-1 min-w-0 px-1.5 py-1 pr-5 rounded-md border border-border bg-background text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
+                              className="flex-1 min-w-0 appearance-none pl-2 pr-6 py-1.5 rounded-lg border border-border bg-background text-[11px] text-foreground transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
                             >
-                              <option value="">— none —</option>
+                              <option value="">Choose a meal…</option>
                               {meals.map((m) => (
                                 <option key={m.id} value={m.id}>
                                   {m.name}
@@ -661,7 +673,8 @@ export default function PlannerPage() {
                                 setLoggerSlot({ date, type, mode: "add" })
                               }
                               title="Log what I ate"
-                              className="p-1 rounded-md text-muted-foreground hover:text-terracotta hover:bg-muted transition-colors"
+                              aria-label={`Log what you ate for ${type} on ${dayFullLabel(day)}`}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:border-ring hover:text-terracotta hover:bg-muted"
                             >
                               <Camera size={12} />
                             </button>
@@ -709,10 +722,20 @@ export default function PlannerPage() {
                     <td className="px-3 py-2.5 text-right align-top whitespace-nowrap">
                       <p className="tabular text-sm font-semibold text-foreground">
                         {dayPlanned.toLocaleString()}
+                        <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                          {" "}
+                          plan
+                        </span>
                       </p>
-                      <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                        kcal
-                      </p>
+                      {eatenKcalFor(date) > 0 && (
+                        <p className="tabular text-sm font-semibold text-terracotta">
+                          {eatenKcalFor(date).toLocaleString()}
+                          <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                            {" "}
+                            eaten
+                          </span>
+                        </p>
+                      )}
                     </td>
                   </tr>
                 )
@@ -739,10 +762,20 @@ export default function PlannerPage() {
                   <td className="px-3 py-2.5 text-right">
                     <p className="tabular text-sm font-semibold text-primary">
                       {totalPlannedKcal.toLocaleString()}
+                      <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                        {" "}
+                        plan
+                      </span>
                     </p>
-                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                      kcal
-                    </p>
+                    {loggedCalories > 0 && (
+                      <p className="tabular text-sm font-semibold text-terracotta">
+                        {loggedCalories.toLocaleString()}
+                        <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                          {" "}
+                          eaten
+                        </span>
+                      </p>
+                    )}
                   </td>
                 </tr>
               </tfoot>
@@ -753,7 +786,9 @@ export default function PlannerPage() {
 
       <p className="mt-3 text-xs text-muted-foreground">
         Servings scale ingredient amounts when you regenerate the grocery list.
-        Logged meals are what you ate — they never change the plan.
+        Tap "Log what I ate" on any day to record what you actually ate — even
+        a past day you missed. Logged meals show up in the "eaten" numbers and
+        never change the plan.
       </p>
 
       <MealLoggerModal

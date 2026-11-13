@@ -8,9 +8,23 @@ import {
   Dumbbell,
   Flame,
   Gauge,
+  Plus,
+  Scale,
+  Sparkles,
+  Trash2,
   X,
 } from "lucide-react"
-import { getActivities, getUserProfile } from "../lib/db"
+import {
+  addWeightLog,
+  deleteWeightLog,
+  getActivities,
+  getHealthProfile,
+  getWeeklyCheckins,
+  getUserProfile,
+  getWeightLogs,
+  saveWeeklyCheckin,
+  updateWeeklyCheckinNote,
+} from "../lib/db"
 import {
   addDays,
   DAYS,
@@ -20,9 +34,17 @@ import {
 } from "../lib/dates"
 import { entriesForDate, totalsForDate } from "../lib/mealLog"
 import { useMealLog } from "../context/MealLogContext"
-import type { Activity, ActivityType, ISODate, UserProfile } from "../lib/types"
+import type {
+  Activity,
+  ActivityType,
+  ISODate,
+  UserProfile,
+  WeeklyCheckin,
+  WeeklyProgressReport,
+  WeightLogEntry,
+} from "../lib/types"
 import { ACTIVITY_ICONS, activityDisplayLabel } from "../lib/activityMeta"
-import { buildDemoActivities, demoProfile } from "../lib/demo"
+import { buildDemoActivities, buildDemoWeightLogs, demoProfile } from "../lib/demo"
 import {
   estimateForActivity,
   fmtRange,
@@ -30,6 +52,12 @@ import {
   REFERENCE_WEIGHT_KG,
   sumCompletedBurn,
 } from "../lib/calorieEstimate"
+import { analyzeWeeklyProgress } from "../lib/gemini"
+import {
+  loadHealthProfile,
+  summarizeHealthForPrompt,
+  type HealthProfile,
+} from "../lib/healthProfile"
 import { useAuth } from "../context/AuthContext"
 import { useToast } from "../components/Toast"
 import { PageContainer, PageHeader } from "../components/PageHeader"
@@ -39,6 +67,7 @@ import {
   Card,
   CardHead,
   CardSkeleton,
+  FoodFlagBadge,
   InlineNote,
   ProgressBar,
 } from "../components/ui"
@@ -124,6 +153,30 @@ function longDate(date: ISODate): string {
   })
 }
 
+function RatingDots({ value }: { value: number }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1"
+      aria-label={`Progress score ${value} of 5`}
+    >
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span
+          key={n}
+          className={`h-2.5 w-2.5 rounded-full ${
+            n <= value ? "bg-primary" : "bg-muted"
+          }`}
+        />
+      ))}
+    </span>
+  )
+}
+
+function fmtKgDelta(n: number | null): string {
+  if (n == null) return "—"
+  const sign = n > 0 ? "+" : ""
+  return `${sign}${n.toFixed(1)} kg`
+}
+
 export default function ProgressPage() {
   const { session } = useAuth()
   const userId = session?.user?.id ?? null
@@ -132,23 +185,51 @@ export default function ProgressPage() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [activities, setActivities] = useState<Activity[]>([])
+  const [weightLogs, setWeightLogs] = useState<WeightLogEntry[]>([])
+  const [checkins, setCheckins] = useState<WeeklyCheckin[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState<ISODate>(TODAY)
+
+  const [weightDate, setWeightDate] = useState<ISODate>(TODAY)
+  const [weightValue, setWeightValue] = useState("")
+  const [savingWeight, setSavingWeight] = useState(false)
+
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyseError, setAnalyseError] = useState("")
+  const [report, setReport] = useState<WeeklyProgressReport | null>(null)
+  const [checkinNote, setCheckinNote] = useState("")
+  const [savingNote, setSavingNote] = useState(false)
+
+  const isCheckinOpen = TODAY >= addDays(WEEK_START, 4)
 
   useEffect(() => {
     let cancelled = false
     if (!userId) {
       setProfile(demoProfile)
       setActivities(buildDemoActivities(PERIOD_START, TODAY))
+      setWeightLogs(buildDemoWeightLogs())
+      setCheckins([])
       setLoading(false)
       return
     }
     setLoading(true)
-    Promise.all([getUserProfile(), getActivities(PERIOD_START, TODAY)])
-      .then(([p, acts]) => {
+    Promise.all([
+      getUserProfile(),
+      getActivities(PERIOD_START, TODAY),
+      getWeightLogs(PERIOD_START, TODAY),
+      getWeeklyCheckins(),
+    ])
+      .then(([p, acts, weights, checks]) => {
         if (cancelled) return
         setProfile(p)
         setActivities(acts)
+        setWeightLogs(weights)
+        setCheckins(checks)
+        const saved = checks.find((c) => c.week_start === WEEK_START)
+        if (saved) {
+          setReport(saved.report)
+          setCheckinNote(saved.note ?? "")
+        }
       })
       .catch((err) => {
         console.error("progress load:", err)
@@ -323,6 +404,205 @@ export default function ProgressPage() {
   const dayTotals = totalsForDate(log, selectedDate)
   const dayActivity = activityByDay.get(selectedDate) ?? null
 
+  // ── Weekly check-in derivations ──────────────────────────────────
+  const weekPerDay = useMemo(() => {
+    const days: Array<{
+      date: ISODate
+      calories: number
+      protein_g: number
+      carbs_g: number
+      fat_g: number
+      logged: boolean
+    }> = []
+    for (let i = 0; i < 7; i++) {
+      const date = addDays(WEEK_START, i)
+      if (date > TODAY) continue
+      const t = perDay.get(date)
+      days.push({
+        date,
+        calories: t?.calories ?? 0,
+        protein_g: t?.protein_g ?? 0,
+        carbs_g: t?.carbs_g ?? 0,
+        fat_g: t?.fat_g ?? 0,
+        logged: Boolean(t),
+      })
+    }
+    return days
+  }, [perDay])
+
+  const weekBurn = useMemo(
+    () =>
+      sumCompletedBurn(
+        activities.filter((a) => a.date >= WEEK_START && a.date <= TODAY),
+        weightKg,
+      ),
+    [activities, weightKg],
+  )
+
+  const weekLoggedDays = weekPerDay.filter((d) => d.logged).length
+  const weekAvgCal = weekLoggedDays
+    ? Math.round(
+        weekPerDay.reduce((s, d) => s + d.calories, 0) / weekLoggedDays,
+      )
+    : 0
+  const weekAvgProtein = weekLoggedDays
+    ? Math.round(
+        weekPerDay.reduce((s, d) => s + d.protein_g, 0) / weekLoggedDays,
+      )
+    : 0
+
+  const weightDeltaKg = useMemo(() => {
+    if (weightLogs.length < 2) return null
+    const beforeWeek = weightLogs.filter((w) => w.date < WEEK_START)
+    const baseline = beforeWeek.length
+      ? beforeWeek[beforeWeek.length - 1].weight_kg
+      : null
+    const latest = weightLogs[weightLogs.length - 1].weight_kg
+    if (baseline == null) return null
+    return Math.round((latest - baseline) * 10) / 10
+  }, [weightLogs])
+  const latestWeightKg = weightLogs.length
+    ? weightLogs[weightLogs.length - 1].weight_kg
+    : null
+
+  async function handleAddWeight() {
+    const kg = parseFloat(weightValue)
+    if (!kg || kg <= 0) return
+    const rounded = Math.round(kg * 10) / 10
+    if (!userId) {
+      const entry: WeightLogEntry = {
+        id: `local-${Date.now()}`,
+        user_id: "",
+        date: weightDate,
+        weight_kg: rounded,
+      }
+      setWeightLogs((prev) =>
+        [...prev.filter((w) => w.date !== entry.date), entry].sort((a, b) =>
+          a.date.localeCompare(b.date),
+        ),
+      )
+      setWeightValue("")
+      toast("Weight logged (preview — sign in to save)", "info")
+      return
+    }
+    setSavingWeight(true)
+    try {
+      const entry = await addWeightLog(weightDate, rounded)
+      setWeightLogs((prev) =>
+        [...prev.filter((w) => w.date !== entry.date), entry].sort((a, b) =>
+          a.date.localeCompare(b.date),
+        ),
+      )
+      setWeightValue("")
+      toast("Weight logged", "info")
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : "Could not log weight",
+        "error",
+      )
+    } finally {
+      setSavingWeight(false)
+    }
+  }
+
+  async function handleDeleteWeight(id: string) {
+    if (!userId) {
+      setWeightLogs((prev) => prev.filter((w) => w.id !== id))
+      return
+    }
+    try {
+      await deleteWeightLog(id)
+      setWeightLogs((prev) => prev.filter((w) => w.id !== id))
+      toast("Weigh-in removed", "info")
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : "Could not remove weigh-in",
+        "error",
+      )
+    }
+  }
+
+  async function handleAnalyse() {
+    if (analyzing) return
+    setAnalyzing(true)
+    setAnalyseError("")
+    try {
+      let healthProfile: HealthProfile | null = null
+      if (userId) {
+        try {
+          healthProfile = await getHealthProfile()
+        } catch {
+          healthProfile = null
+        }
+      }
+      const healthSummary = summarizeHealthForPrompt(
+        healthProfile ?? loadHealthProfile(),
+      )
+      const result = await analyzeWeeklyProgress({
+        weekStart: WEEK_START,
+        weekEnd: TODAY,
+        weighIns: weightLogs,
+        weightDeltaKg,
+        latestWeightKg,
+        perDay: weekPerDay,
+        dailyCalorieTarget: target > 0 ? target : null,
+        proteinTarget: profile?.protein_g_target ?? null,
+        carbsTarget: profile?.carbs_g_target ?? null,
+        fatTarget: profile?.fat_g_target ?? null,
+        activityMin: thisWeekMinutes,
+        burnLow: Math.round(weekBurn.low),
+        burnHigh: Math.round(weekBurn.high),
+        goal: profile?.goal ?? "maintain",
+        healthSummary,
+      })
+      setReport(result)
+      setCheckinNote("")
+      if (userId) {
+        const saved = await saveWeeklyCheckin({
+          week_start: WEEK_START,
+          weight_delta_kg: weightDeltaKg,
+          avg_calories: weekLoggedDays ? weekAvgCal : null,
+          avg_protein_g: weekLoggedDays ? weekAvgProtein : null,
+          activity_min: thisWeekMinutes,
+          rating: result.rating,
+          rating_label: result.rating_label,
+          note: null,
+          report: result,
+        })
+        setCheckins((prev) => [
+          saved,
+          ...prev.filter((c) => c.week_start !== saved.week_start),
+        ])
+      }
+    } catch (err) {
+      setAnalyseError(
+        err instanceof Error ? err.message : "Could not analyse your week.",
+      )
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  async function handleSaveNote() {
+    if (!userId) return
+    setSavingNote(true)
+    try {
+      await updateWeeklyCheckinNote(WEEK_START, checkinNote)
+      setCheckins((prev) =>
+        prev.map((c) =>
+          c.week_start === WEEK_START ? { ...c, note: checkinNote } : c,
+        ),
+      )
+      toast("Note saved", "info")
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not save note", "error")
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
+  const recentCheckins = checkins.filter((c) => c.week_start !== WEEK_START)
+
   return (
     <PageContainer>
       <PageHeader
@@ -338,6 +618,165 @@ export default function ProgressPage() {
           </Link>
         }
       />
+
+      {/* Weekly check-in */}
+      <Card className="mb-4">
+        <CardHead
+          title="Weekly check-in"
+          icon={<Sparkles size={16} className="text-primary" />}
+          action={
+            isCheckinOpen ? (
+              <Button
+                size="sm"
+                onClick={handleAnalyse}
+                loading={analyzing}
+                disabled={analyzing}
+              >
+                {!analyzing && <Sparkles size={14} />}
+                {analyzing ? "Analysing…" : "Analyse weekly progress"}
+              </Button>
+            ) : (
+              <Badge tone="neutral">Opens Friday</Badge>
+            )
+          }
+        />
+        {!isCheckinOpen ? (
+          <p className="text-sm text-muted-foreground">
+            Your weekly check-in opens on Friday — a friendly review of your
+            weight, food, and training for the week.
+          </p>
+        ) : analyzing ? (
+          <p className="flex items-center gap-2.5 py-4 text-sm text-muted-foreground">
+            <Sparkles size={15} className="animate-pulse text-primary" />
+            Your coach is reading the week…
+          </p>
+        ) : report ? (
+          <div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-semibold leading-snug text-foreground">
+                  {report.headline}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <RatingDots value={report.rating} />
+                  {report.rating_label && (
+                    <span className="text-xs text-muted-foreground">
+                      {report.rating_label}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <Badge
+                tone={
+                  report.rating >= 4
+                    ? "sage"
+                    : report.rating >= 3
+                      ? "blue"
+                      : "warning"
+                }
+              >
+                {report.rating} / 5
+              </Badge>
+            </div>
+
+            {report.weight_note && (
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                {report.weight_note}
+              </p>
+            )}
+
+            {report.highlights.length > 0 && (
+              <div className="mt-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Highlights
+                </p>
+                <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {report.highlights.map((h) => (
+                    <li key={h}>{h}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {report.next_steps.length > 0 && (
+              <div className="mt-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Next week, focus on
+                </p>
+                <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {report.next_steps.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-4 border-t border-border pt-4">
+              <label
+                className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                htmlFor="weekly-note"
+              >
+                Your note
+              </label>
+              <div className="flex items-end gap-2">
+                <input
+                  id="weekly-note"
+                  value={checkinNote}
+                  onChange={(e) => setCheckinNote(e.target.value)}
+                  placeholder="Add a thought to remember this week…"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSaveNote}
+                  loading={savingNote}
+                  disabled={!userId}
+                >
+                  Save
+                </Button>
+              </div>
+              {!userId && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Sign in to save your check-in and note.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Review your weight, food, and training for the week with a quick
+            check-in from your coach.
+          </p>
+        )}
+        {analyseError && <p className="mt-2 text-xs text-error">{analyseError}</p>}
+
+        {recentCheckins.length > 0 && (
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Past weeks
+            </p>
+            <div className="space-y-2">
+              {recentCheckins.slice(0, 8).map((c) => (
+                <div key={c.id} className="flex items-center gap-3 text-sm">
+                  <span className="tabular w-[112px] shrink-0 text-xs text-muted-foreground">
+                    {shortDate(c.week_start)} – {shortDate(addDays(c.week_start, 6))}
+                  </span>
+                  <RatingDots value={c.rating} />
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {c.rating_label}
+                  </span>
+                  {c.weight_delta_kg != null && (
+                    <span className="tabular text-xs text-muted-foreground">
+                      {fmtKgDelta(c.weight_delta_kg)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* Row 1: eating + activity summary */}
       <div className="grid gap-4 lg:grid-cols-3">
@@ -616,6 +1055,98 @@ export default function ProgressPage() {
         </Card>
       </div>
 
+      {/* Weight */}
+      <Card className="mt-4">
+        <CardHead
+          title="Weight"
+          icon={<Scale size={16} className="text-secondary" />}
+          action={
+            latestWeightKg != null ? (
+              <Badge tone="neutral">
+                {latestWeightKg} kg · {fmtKgDelta(weightDeltaKg)} vs before week
+              </Badge>
+            ) : (
+              <Badge tone="neutral">No weigh-ins yet</Badge>
+            )
+          }
+        />
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="md:col-span-1">
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Log a weigh-in
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={weightDate}
+                max={TODAY}
+                onChange={(e) => setWeightDate(e.target.value)}
+                className="rounded-lg border border-border bg-background px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="Weigh-in date"
+              />
+              <input
+                type="number"
+                step="0.1"
+                min="1"
+                value={weightValue}
+                onChange={(e) => setWeightValue(e.target.value)}
+                placeholder="kg"
+                className="w-24 rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-label="Weight in kg"
+              />
+              <Button
+                size="sm"
+                onClick={handleAddWeight}
+                loading={savingWeight}
+                disabled={!weightValue.trim()}
+              >
+                <Plus size={14} />
+                Log
+              </Button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Weigh in regularly — your weekly check-in compares against the
+              last weigh-in before the week.
+            </p>
+          </div>
+          <div className="md:col-span-2">
+            {weightLogs.length === 0 ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                No weigh-ins in the last 4 weeks.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {[...weightLogs]
+                  .sort((a, b) => b.date.localeCompare(a.date))
+                  .slice(0, 8)
+                  .map((w) => (
+                    <div
+                      key={w.id}
+                      className="flex items-center gap-3 text-sm"
+                    >
+                      <span className="tabular w-[72px] shrink-0 text-muted-foreground">
+                        {shortDate(w.date)}
+                      </span>
+                      <span className="tabular text-foreground">
+                        {w.weight_kg} kg
+                      </span>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Remove ${w.weight_kg} kg weigh-in`}
+                        className="ml-auto hover:text-error"
+                        onClick={() => handleDeleteWeight(w.id)}
+                      >
+                        <Trash2 size={13} />
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
       {/* Row 2: calendar + day detail */}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -765,6 +1296,15 @@ export default function ProgressPage() {
                               {food.calories} kcal · P{food.protein_g} C
                               {food.carbs_g} F{food.fat_g}
                             </p>
+                            {food.flag_level && (
+                              <div className="mt-1">
+                                <FoodFlagBadge
+                                  level={food.flag_level}
+                                  reason={food.flag_reason}
+                                  showReason
+                                />
+                              </div>
+                            )}
                           </div>
                           <Button
                             size="icon-sm"

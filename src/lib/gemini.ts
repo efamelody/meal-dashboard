@@ -3,8 +3,16 @@
 // Requires VITE_GEMINI_API_KEY in .env.
 
 import { ACTIVITY_LABELS, GOAL_LABELS, type FormulaResult } from "./nutrition"
-import type { ActivityLevel, Goal, Sex } from "./types"
-import type { HealthMetricKey } from "./health"
+import type {
+  ActivityLevel,
+  Goal,
+  ISODate,
+  ScannedInventoryItem,
+  Sex,
+  WeeklyProgressReport,
+  WeightLogEntry,
+} from "./types"
+import type { HealthAvoidItem } from "./healthProfile"
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 const DEFAULT_MODEL =
@@ -252,6 +260,13 @@ async function downscaleImage(
 }
 
 /** One food the AI recognised in the photo, with the reasoning behind it. */
+export interface MealItemFlag {
+  /** "danger" = squarely an avoid-list item; "warning" = overlap or limit. */
+  level: "warning" | "danger"
+  /** Short, metric-based why, e.g. "high sugar — visceral fat". */
+  reason: string
+}
+
 export interface MealEstimateItem {
   /** Short dish name, e.g. "Nasi lemak". */
   name: string
@@ -265,6 +280,8 @@ export interface MealEstimateItem {
   /** What the AI sees, the portion it assumed, and how it got the number. */
   justification: string
   confidence: "low" | "medium" | "high"
+  /** Set when the food clashes with the user's saved avoid list. */
+  flag?: MealItemFlag | null
 }
 
 export interface MealEstimate {
@@ -278,6 +295,8 @@ export interface MealPhotoInput {
   imageDataUrl?: string
   /** The user says the AI got the food wrong, e.g. "no this is nasi ayam". */
   correction?: string
+  /** Saved from the check-up analysis — foods to steer away from. */
+  avoidList?: HealthAvoidItem[]
 }
 
 const MEAL_PROMPT = `You are a nutrition assistant who knows Malaysian and Singaporean food: hawker centres, kopitiams, mamaks, and home cooking.
@@ -298,12 +317,13 @@ Rules:
 - Be honest about uncertainty: use "low" confidence for anything you cannot clearly see.
 
 Return a JSON object:
-{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "sugar_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high"}]}`
+{"summary": "<one sentence about the meal>", "items": [{"name": "<short dish name>", "portion": "<portion you assumed>", "calories": <number>, "protein_g": <number>, "carbs_g": <number>, "fat_g": <number>, "sugar_g": <number>, "justification": "<1-2 plain sentences: what you see, the portion you assumed, and how you got the number>", "confidence": "low" | "medium" | "high", "flag": null | {"level": "warning" | "danger", "reason": "<short why>"}}]}`
 
 function buildMealPrompt(input: {
   description: string
   photoAttached: boolean
   correction: string
+  avoidList?: HealthAvoidItem[]
 }): string {
   const sections = [MEAL_PROMPT]
   if (input.description) {
@@ -317,6 +337,19 @@ function buildMealPrompt(input: {
     sections.push(
       `The user says a previous identification was wrong. Their correction: "${input.correction}". The correction overrides the description and the photo, so treat it as the truth about what the food is and estimate again.`,
     )
+  }
+  if (input.avoidList?.length) {
+    const lines = input.avoidList
+      .map(
+        (item) =>
+          `- ${item.food} — ${item.severity.toUpperCase()}${
+            item.reason ? ` (because of ${item.reason})` : ""
+          }`,
+      )
+      .join("\n")
+    sections.push(`The user's saved check-up analysis asks them to steer away from:
+${lines}
+Check every item you identify against that list. Set "flag" to {"level": "danger", "reason": "<short why>"} when the food is squarely one of these, {"level": "warning", "reason": "<short why>"} when it overlaps with a limit item or is a close relative of one (same sauce, same base, same cooking style), and null otherwise. Anchor every reason in the saved metric it stresses — e.g. "high sugar — limiting sugary drinks for visceral fat" — without diagnosing or claiming any food treats a condition. Do not put the warning inside the item name; the app renders the flag itself.`)
   }
   return sections.join("\n\n")
 }
@@ -335,6 +368,39 @@ function asConfidence(value: unknown): MealEstimateItem["confidence"] {
   return text === "low" || text === "high" ? text : "medium"
 }
 
+/** Narrows whatever the model returned into a flag, or null. */
+function asFlag(value: unknown): MealItemFlag | null {
+  if (typeof value !== "object" || value === null) return null
+  const raw = value as { level?: unknown; reason?: unknown }
+  const reason = asText(raw.reason)
+  if (!reason) return null
+  const level = asText(raw.level).toLowerCase()
+  return { level: level === "danger" ? "danger" : "warning", reason }
+}
+
+/** Narrows whatever the check-up returned into a clean avoid list. */
+function parseAvoidList(raw: unknown): HealthAvoidItem[] {
+  if (!Array.isArray(raw)) return []
+  const out: HealthAvoidItem[] = []
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue
+    const item = entry as {
+      food?: unknown
+      reason?: unknown
+      severity?: unknown
+    }
+    const food = asText(item.food)
+    if (!food) continue
+    out.push({
+      food,
+      reason: asText(item.reason),
+      severity:
+        asText(item.severity).toLowerCase() === "avoid" ? "avoid" : "limit",
+    })
+  }
+  return out
+}
+
 interface RawEstimateItem {
   name?: unknown
   portion?: unknown
@@ -345,6 +411,7 @@ interface RawEstimateItem {
   sugar_g?: unknown
   justification?: unknown
   confidence?: unknown
+  flag?: unknown
 }
 
 function parseEstimateItem(
@@ -365,6 +432,7 @@ function parseEstimateItem(
       asText(raw.justification) ||
       `Estimated about ${calories} kcal for one ${name.toLowerCase()}.`,
     confidence: asConfidence(raw.confidence),
+    flag: asFlag(raw.flag),
   }
 }
 
@@ -421,42 +489,219 @@ export async function estimateMealFromPhoto(
       description: input.description.trim(),
       photoAttached,
       correction,
+      avoidList: input.avoidList,
     }),
   })
   const raw = await callGeminiParts<unknown>(parts)
   return parseMealEstimate(raw, input.description.trim() || "Logged meal")
 }
 
-export interface HealthImportDraft {
-  measured_at: string
+export interface HealthSummaryResult {
   summary: string
-  focus: string
-  goals: string[]
-  recommendations: string[]
-  metrics: Array<{
-    key: HealthMetricKey
-    value: number
-    unit: string
-    label: string
-    target?: string
-  }>
+  avoid_list?: HealthAvoidItem[]
 }
 
-/** Extracts a check-up photo into a reviewable draft; the image is not stored. */
-export async function analyzeHealthCheckup(
+/**
+ * Turns a check-up photo (or the user's own typed notes) into a short,
+ * plain-language focus summary plus an avoid list. The image is not stored.
+ */
+export async function summarizeHealthProfile(input: {
+  imageDataUrl?: string
+  text?: string
+}): Promise<HealthSummaryResult> {
+  const parts: GeminiPart[] = []
+  if (input.imageDataUrl) {
+    const prepared = await downscaleImage(input.imageDataUrl, 1600, 0.86)
+    const [meta, data] = prepared.split(",")
+    const mime = meta.match(/data:([^;]+);base64/)?.[1] ?? "image/jpeg"
+    parts.push({ inline_data: { mime_type: mime, data } })
+  }
+  const sourceNote = input.imageDataUrl
+    ? "Read the health screening sheet in the photo carefully."
+    : `The user typed these notes about what they want to focus on: ${
+        input.text?.trim() || ""
+      }`
+  const prompt = `You are turning a health check-up into a short, plain-language focus summary the user can edit.
+${sourceNote}
+Do not diagnose or invent missing values. Frame everything as general lifestyle guidance, never as medical treatment.
+Highlight the areas the user most needs to focus on, with the reason, in a warm and practical tone (for example: "Body fat is high, so focus on lowering it — less sugar and fried food, more protein and fibre."). Keep the summary to 2-4 sentences.
+Also derive a short "avoid_list" of local Malaysian/Singaporean food and drink categories the user should steer away from, based only on findings that are clearly elevated or outside range. Severity "avoid" for the worst clashes, "limit" for things to keep small and rare. Keep the list to 3-6 items with no repeats. Mention uncertainty if handwriting is unclear.
+Return JSON only with this shape:
+{"summary":"<free-text summary>","avoid_list":[{"food":"shared food type","reason":"<short why, tied to the finding>","severity":"avoid|limit"}]}`
+  parts.push({ text: prompt })
+  const draft = await callGeminiParts<Partial<HealthSummaryResult>>(parts)
+  return {
+    summary: asText(draft.summary),
+    avoid_list: parseAvoidList((draft as { avoid_list?: unknown }).avoid_list),
+  }
+}
+
+export interface WeeklyProgressInput {
+  weekStart: ISODate
+  weekEnd: ISODate
+  /** Chronological weigh-ins for context. */
+  weighIns: WeightLogEntry[]
+  /** Change since the last weigh-in before the week, in kg (null = unknown). */
+  weightDeltaKg: number | null
+  /** Latest recorded weight, in kg (null = no weigh-ins yet). */
+  latestWeightKg: number | null
+  /** Calories/macros for each day of the week logged so far. */
+  perDay: Array<{
+    date: ISODate
+    calories: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+    logged: boolean
+  }>
+  dailyCalorieTarget: number | null
+  proteinTarget: number | null
+  carbsTarget: number | null
+  fatTarget: number | null
+  activityMin: number
+  burnLow: number
+  burnHigh: number
+  goal: Goal
+  /** Pre-built plain-language health context (from summarizeHealthForPrompt). */
+  healthSummary: string
+}
+
+function normalizeWeeklyReport(
+  raw: Partial<WeeklyProgressReport>,
+): WeeklyProgressReport {
+  const rating = Math.max(1, Math.min(5, Math.round(Number(raw.rating) || 3)))
+  return {
+    rating,
+    rating_label:
+      typeof raw.rating_label === "string" ? raw.rating_label : "",
+    headline:
+      typeof raw.headline === "string"
+        ? raw.headline
+        : "Here's how your week went.",
+    weight_note:
+      typeof raw.weight_note === "string" ? raw.weight_note : "",
+    highlights: Array.isArray(raw.highlights)
+      ? raw.highlights
+          .filter((v): v is string => typeof v === "string")
+          .slice(0, 5)
+      : [],
+    next_steps: Array.isArray(raw.next_steps)
+      ? raw.next_steps
+          .filter((v): v is string => typeof v === "string")
+          .slice(0, 4)
+      : [],
+  }
+}
+
+/**
+ * Writes a warm, non-jargony weekly check-in from the week's data. Returns a
+ * structured report including an AI progress score (1–5) that is saved with
+ * the check-in so the user can watch it trend over time.
+ */
+export async function analyzeWeeklyProgress(
+  input: WeeklyProgressInput,
+): Promise<WeeklyProgressReport> {
+  const weighLines = input.weighIns.length
+    ? input.weighIns.map((w) => `${w.date} — ${w.weight_kg} kg`).join("\n")
+    : "(no weigh-ins logged yet)"
+  const deltaText =
+    input.weightDeltaKg == null
+      ? "not enough weigh-ins to tell yet"
+      : input.weightDeltaKg === 0
+        ? "no change"
+        : `${input.weightDeltaKg > 0 ? "+" : ""}${input.weightDeltaKg.toFixed(1)} kg`
+  const latestText =
+    input.latestWeightKg == null
+      ? "(no weigh-ins logged yet)"
+      : `${input.latestWeightKg} kg`
+  const dayLines = input.perDay
+    .map((d) => {
+      const kcal = d.logged ? `${d.calories}` : "not logged"
+      const target = input.dailyCalorieTarget
+        ? ` / ${input.dailyCalorieTarget} kcal`
+        : ""
+      return `${d.date} — ${kcal}${target}`
+    })
+    .join("\n")
+
+  const prompt = `You are a warm, supportive personal trainer and nutrition coach writing this week's progress check-in in plain, encouraging language. No jargon, no medical claims.
+
+Week: ${input.weekStart} to ${input.weekEnd}
+
+Body & health:
+- Goal: ${input.goal} (${GOAL_LABELS[input.goal]})
+- Latest weight: ${latestText}
+- Weight change since before this week: ${deltaText}
+- Recent weigh-ins:\n${weighLines}
+- Health focus from their check-up summary:\n${input.healthSummary || "(none saved)"}
+
+Food this week (logged):
+${dayLines}
+- Protein target: ${input.proteinTarget ?? "not set"} g/day
+- Carbs target: ${input.carbsTarget ?? "not set"} g/day
+- Fat target: ${input.fatTarget ?? "not set"} g/day
+
+Activity this week:
+- Completed: ${input.activityMin} min
+- Estimated calories burned: ${input.burnLow}–${input.burnHigh} kcal
+
+Write a motivational but detailed check-in. Rules:
+- Lead with the person, not the numbers. Celebrate consistency and effort.
+- If weight went down, say so plainly (e.g. "you're down 0.5 kg"). If it stayed flat, give a healthy reason when the data supports it (protein + training building muscle, water, etc.) instead of discouraging them.
+- Tie observations to their goal and health focus. If their health summary mentions body fat or visceral fat, comment on the direction things are heading "at this rate" — without diagnosing or promising a medical result.
+- Point out one thing that's working AND one gentle thing to focus on next week.
+- No jargon: avoid "BMR", "TDEE", "macros" unless you explain them in plain words. Round numbers simply.
+
+Return JSON only with this shape:
+{"rating": <integer 1-5, an overall progress score>, "rating_label": "<short reason for the score, e.g. 'Strong week — consistent deficit'>", "headline": "<one motivational line>", "weight_note": "<1 sentence about weight>", "highlights": ["<plain observation>", ... 2-4 items], "next_steps": ["<practical, jargon-free action>", ... 2-3 items]}`
+  const raw = await callGeminiJSON<Partial<WeeklyProgressReport>>(prompt)
+  return normalizeWeeklyReport(raw)
+}
+
+const PANTRY_PROMPT = `You are a pantry assistant that reads photos of groceries and pantry items, familiar with Malaysian and Singaporean households.
+
+Identify every distinct food or grocery item you can see. Deduplicate: list each item ONCE. If the photo shows several units of the same item (e.g. two cartons of the same milk, a whole tray of eggs), merge them into one entry with a larger quantity.
+
+Return a JSON array, one object per item:
+[{"name": "<short plain name, e.g. 'Jasmine rice'>", "quantity": <number>, "unit": "<one of: kg, g, L, ml, piece, pack, bottle, can, jar, carton, box, bag>"}]
+
+Rules:
+- quantity is a number, always positive. Use 1 when you cannot tell the amount — it is a best guess.
+- Pick a sensible unit; if the size is unclear, use "piece" or "pack".
+- Keep names plain and short. Include a brand only when it is clearly visible and helpful.
+- Ignore non-food clutter (hands, table, shadows, background).
+- If nothing edible is clearly visible, return an empty array [].`
+
+/**
+ * Reads a photo of groceries/pantry and returns the items the AI identified,
+ * with best-guess quantities. The caller decides how to merge them into
+ * inventory — nothing is written here.
+ */
+export async function scanInventoryPhoto(
   imageDataUrl: string,
-): Promise<HealthImportDraft> {
+): Promise<ScannedInventoryItem[]> {
+  const parts: GeminiPart[] = []
   const prepared = await downscaleImage(imageDataUrl, 1600, 0.86)
   const [meta, data] = prepared.split(",")
   const mime = meta.match(/data:([^;]+);base64/)?.[1] ?? "image/jpeg"
-  const prompt = `You are extracting a health screening sheet into structured data for the user to review.
-Read handwritten and printed values carefully. Do not diagnose, invent missing values, or turn a report score into a medical diagnosis.
-Use ISO date YYYY-MM-DD. If only month and year are visible, use the first day of that month.
-Return JSON only with this shape:
-{"measured_at":"YYYY-MM-DD","summary":"one cautious plain-language summary","focus":"one sentence about the highest-priority areas","goals":["..."],"recommendations":["..."],"metrics":[{"key":"visceral_fat|bmi|total_cholesterol|retinal_arteriosclerosis_risk|retinal_glucose_metabolism_risk|oxito_liver_score|oxito_back_score|blood_pressure_systolic|blood_pressure_diastolic|fasting_glucose","label":"...","value":0,"unit":"...","target":"..."}]}
-Only include metrics you can actually read. Recommendations must be framed as general next steps or advice visible on the report, not medical treatment. Mention uncertainty in the summary if handwriting is unclear.`
-  return callGeminiParts<HealthImportDraft>([
-    { inline_data: { mime_type: mime, data } },
-    { text: prompt },
-  ])
+  parts.push({ inline_data: { mime_type: mime, data } })
+  parts.push({ text: PANTRY_PROMPT })
+
+  const raw = await callGeminiParts<unknown>(parts)
+  if (!Array.isArray(raw)) return []
+
+  const out: ScannedInventoryItem[] = []
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue
+    const item = entry as { name?: unknown; quantity?: unknown; unit?: unknown }
+    const name = asText(item.name)
+    if (!name) continue
+    const q = Number(item.quantity)
+    out.push({
+      name,
+      quantity: Number.isFinite(q) && q > 0 ? q : null,
+      unit: asText(item.unit) || null,
+    })
+  }
+  return out
 }
