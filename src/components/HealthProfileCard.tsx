@@ -207,7 +207,7 @@ export default function HealthProfileCard() {
           rows={6}
           value={profile.summary}
           onChange={(event) => updateSummary(event.target.value)}
-          placeholder="e.g. Body fat is high, so I want to focus on lowering it — less sugar and fried food, more protein and fibre."
+          placeholder="e.g. Bone density and muscle mass look good, so keep that up. Body fat is high, so I want to focus on lowering it — less sugar and fried food, more protein and fibre."
           className={`${field} resize-y`}
         />
       </div>

@@ -524,7 +524,7 @@ export async function summarizeHealthProfile(input: {
   const prompt = `You are turning a health check-up into a short, plain-language focus summary the user can edit.
 ${sourceNote}
 Do not diagnose or invent missing values. Frame everything as general lifestyle guidance, never as medical treatment.
-Highlight the areas the user most needs to focus on, with the reason, in a warm and practical tone (for example: "Body fat is high, so focus on lowering it — less sugar and fried food, more protein and fibre."). Keep the summary to 2-4 sentences.
+Give a balanced summary: first note the results that are already good or in a healthy range (for example good bone density, high muscle mass, normal blood pressure), then highlight the areas the user most needs to focus on, with the reason. Use a warm, encouraging tone (for example: "Your bone density and muscle mass look good, so keep that up. Body fat is high, though, so focus on lowering it — less sugar and fried food, more protein and fibre."). Keep the summary to 2-4 sentences and only mention what is actually shown on the sheet.
 Also derive a short "avoid_list" of local Malaysian/Singaporean food and drink categories the user should steer away from, based only on findings that are clearly elevated or outside range. Severity "avoid" for the worst clashes, "limit" for things to keep small and rare. Keep the list to 3-6 items with no repeats. Mention uncertainty if handwriting is unclear.
 Return JSON only with this shape:
 {"summary":"<free-text summary>","avoid_list":[{"food":"shared food type","reason":"<short why, tied to the finding>","severity":"avoid|limit"}]}`
