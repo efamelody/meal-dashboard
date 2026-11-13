@@ -26,7 +26,7 @@ import {
   startOfWeek,
   toISODate,
 } from "../lib/dates"
-import { slotKey } from "../lib/mealLog"
+import { slotKey, totalsForDate } from "../lib/mealLog"
 import { useMealLog } from "../context/MealLogContext"
 import type {
   DashboardSummary,
@@ -307,6 +307,17 @@ export default function PlannerPage() {
     0,
   )
 
+  const eatenByDay = DAYS.reduce(
+    (acc, day, i) => {
+      const date = dateInWeek(weekStart, i)
+      acc[day] = totalsForDate(log, date).calories
+      return acc
+    },
+    {} as Record<string, number>,
+  )
+  const eatenKcalFor = (date: ISODate): number =>
+    totalsForDate(log, date).calories
+
   const macroRows =
     summary?.weekMacros && summary.dailyMacroTarget
       ? [
@@ -418,6 +429,7 @@ export default function PlannerPage() {
               <WeeklyCaloriesChart
                 week={summary.week}
                 targetKcal={summary.targetKcal}
+                loggedKcal={eatenByDay}
               />
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-border pt-3">
                 <div>
@@ -710,10 +722,20 @@ export default function PlannerPage() {
                     <td className="px-3 py-2.5 text-right align-top whitespace-nowrap">
                       <p className="tabular text-sm font-semibold text-foreground">
                         {dayPlanned.toLocaleString()}
+                        <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                          {" "}
+                          plan
+                        </span>
                       </p>
-                      <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                        kcal
-                      </p>
+                      {eatenKcalFor(date) > 0 && (
+                        <p className="tabular text-sm font-semibold text-terracotta">
+                          {eatenKcalFor(date).toLocaleString()}
+                          <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                            {" "}
+                            eaten
+                          </span>
+                        </p>
+                      )}
                     </td>
                   </tr>
                 )
@@ -740,10 +762,20 @@ export default function PlannerPage() {
                   <td className="px-3 py-2.5 text-right">
                     <p className="tabular text-sm font-semibold text-primary">
                       {totalPlannedKcal.toLocaleString()}
+                      <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                        {" "}
+                        plan
+                      </span>
                     </p>
-                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                      kcal
-                    </p>
+                    {loggedCalories > 0 && (
+                      <p className="tabular text-sm font-semibold text-terracotta">
+                        {loggedCalories.toLocaleString()}
+                        <span className="text-[9px] font-normal text-muted-foreground uppercase tracking-wider">
+                          {" "}
+                          eaten
+                        </span>
+                      </p>
+                    )}
                   </td>
                 </tr>
               </tfoot>
@@ -754,7 +786,9 @@ export default function PlannerPage() {
 
       <p className="mt-3 text-xs text-muted-foreground">
         Servings scale ingredient amounts when you regenerate the grocery list.
-        Logged meals are what you ate — they never change the plan.
+        Tap "Log what I ate" on any day to record what you actually ate — even
+        a past day you missed. Logged meals show up in the "eaten" numbers and
+        never change the plan.
       </p>
 
       <MealLoggerModal

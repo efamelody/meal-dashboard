@@ -3,7 +3,15 @@
 // Requires VITE_GEMINI_API_KEY in .env.
 
 import { ACTIVITY_LABELS, GOAL_LABELS, type FormulaResult } from "./nutrition"
-import type { ActivityLevel, Goal, Sex } from "./types"
+import type {
+  ActivityLevel,
+  Goal,
+  ISODate,
+  ScannedInventoryItem,
+  Sex,
+  WeeklyProgressReport,
+  WeightLogEntry,
+} from "./types"
 import type { HealthAvoidItem } from "./healthProfile"
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
@@ -526,4 +534,174 @@ Return JSON only with this shape:
     summary: asText(draft.summary),
     avoid_list: parseAvoidList((draft as { avoid_list?: unknown }).avoid_list),
   }
+}
+
+export interface WeeklyProgressInput {
+  weekStart: ISODate
+  weekEnd: ISODate
+  /** Chronological weigh-ins for context. */
+  weighIns: WeightLogEntry[]
+  /** Change since the last weigh-in before the week, in kg (null = unknown). */
+  weightDeltaKg: number | null
+  /** Latest recorded weight, in kg (null = no weigh-ins yet). */
+  latestWeightKg: number | null
+  /** Calories/macros for each day of the week logged so far. */
+  perDay: Array<{
+    date: ISODate
+    calories: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+    logged: boolean
+  }>
+  dailyCalorieTarget: number | null
+  proteinTarget: number | null
+  carbsTarget: number | null
+  fatTarget: number | null
+  activityMin: number
+  burnLow: number
+  burnHigh: number
+  goal: Goal
+  /** Pre-built plain-language health context (from summarizeHealthForPrompt). */
+  healthSummary: string
+}
+
+function normalizeWeeklyReport(
+  raw: Partial<WeeklyProgressReport>,
+): WeeklyProgressReport {
+  const rating = Math.max(1, Math.min(5, Math.round(Number(raw.rating) || 3)))
+  return {
+    rating,
+    rating_label:
+      typeof raw.rating_label === "string" ? raw.rating_label : "",
+    headline:
+      typeof raw.headline === "string"
+        ? raw.headline
+        : "Here's how your week went.",
+    weight_note:
+      typeof raw.weight_note === "string" ? raw.weight_note : "",
+    highlights: Array.isArray(raw.highlights)
+      ? raw.highlights
+          .filter((v): v is string => typeof v === "string")
+          .slice(0, 5)
+      : [],
+    next_steps: Array.isArray(raw.next_steps)
+      ? raw.next_steps
+          .filter((v): v is string => typeof v === "string")
+          .slice(0, 4)
+      : [],
+  }
+}
+
+/**
+ * Writes a warm, non-jargony weekly check-in from the week's data. Returns a
+ * structured report including an AI progress score (1–5) that is saved with
+ * the check-in so the user can watch it trend over time.
+ */
+export async function analyzeWeeklyProgress(
+  input: WeeklyProgressInput,
+): Promise<WeeklyProgressReport> {
+  const weighLines = input.weighIns.length
+    ? input.weighIns.map((w) => `${w.date} — ${w.weight_kg} kg`).join("\n")
+    : "(no weigh-ins logged yet)"
+  const deltaText =
+    input.weightDeltaKg == null
+      ? "not enough weigh-ins to tell yet"
+      : input.weightDeltaKg === 0
+        ? "no change"
+        : `${input.weightDeltaKg > 0 ? "+" : ""}${input.weightDeltaKg.toFixed(1)} kg`
+  const latestText =
+    input.latestWeightKg == null
+      ? "(no weigh-ins logged yet)"
+      : `${input.latestWeightKg} kg`
+  const dayLines = input.perDay
+    .map((d) => {
+      const kcal = d.logged ? `${d.calories}` : "not logged"
+      const target = input.dailyCalorieTarget
+        ? ` / ${input.dailyCalorieTarget} kcal`
+        : ""
+      return `${d.date} — ${kcal}${target}`
+    })
+    .join("\n")
+
+  const prompt = `You are a warm, supportive personal trainer and nutrition coach writing this week's progress check-in in plain, encouraging language. No jargon, no medical claims.
+
+Week: ${input.weekStart} to ${input.weekEnd}
+
+Body & health:
+- Goal: ${input.goal} (${GOAL_LABELS[input.goal]})
+- Latest weight: ${latestText}
+- Weight change since before this week: ${deltaText}
+- Recent weigh-ins:\n${weighLines}
+- Health focus from their check-up summary:\n${input.healthSummary || "(none saved)"}
+
+Food this week (logged):
+${dayLines}
+- Protein target: ${input.proteinTarget ?? "not set"} g/day
+- Carbs target: ${input.carbsTarget ?? "not set"} g/day
+- Fat target: ${input.fatTarget ?? "not set"} g/day
+
+Activity this week:
+- Completed: ${input.activityMin} min
+- Estimated calories burned: ${input.burnLow}–${input.burnHigh} kcal
+
+Write a motivational but detailed check-in. Rules:
+- Lead with the person, not the numbers. Celebrate consistency and effort.
+- If weight went down, say so plainly (e.g. "you're down 0.5 kg"). If it stayed flat, give a healthy reason when the data supports it (protein + training building muscle, water, etc.) instead of discouraging them.
+- Tie observations to their goal and health focus. If their health summary mentions body fat or visceral fat, comment on the direction things are heading "at this rate" — without diagnosing or promising a medical result.
+- Point out one thing that's working AND one gentle thing to focus on next week.
+- No jargon: avoid "BMR", "TDEE", "macros" unless you explain them in plain words. Round numbers simply.
+
+Return JSON only with this shape:
+{"rating": <integer 1-5, an overall progress score>, "rating_label": "<short reason for the score, e.g. 'Strong week — consistent deficit'>", "headline": "<one motivational line>", "weight_note": "<1 sentence about weight>", "highlights": ["<plain observation>", ... 2-4 items], "next_steps": ["<practical, jargon-free action>", ... 2-3 items]}`
+  const raw = await callGeminiJSON<Partial<WeeklyProgressReport>>(prompt)
+  return normalizeWeeklyReport(raw)
+}
+
+const PANTRY_PROMPT = `You are a pantry assistant that reads photos of groceries and pantry items, familiar with Malaysian and Singaporean households.
+
+Identify every distinct food or grocery item you can see. Deduplicate: list each item ONCE. If the photo shows several units of the same item (e.g. two cartons of the same milk, a whole tray of eggs), merge them into one entry with a larger quantity.
+
+Return a JSON array, one object per item:
+[{"name": "<short plain name, e.g. 'Jasmine rice'>", "quantity": <number>, "unit": "<one of: kg, g, L, ml, piece, pack, bottle, can, jar, carton, box, bag>"}]
+
+Rules:
+- quantity is a number, always positive. Use 1 when you cannot tell the amount — it is a best guess.
+- Pick a sensible unit; if the size is unclear, use "piece" or "pack".
+- Keep names plain and short. Include a brand only when it is clearly visible and helpful.
+- Ignore non-food clutter (hands, table, shadows, background).
+- If nothing edible is clearly visible, return an empty array [].`
+
+/**
+ * Reads a photo of groceries/pantry and returns the items the AI identified,
+ * with best-guess quantities. The caller decides how to merge them into
+ * inventory — nothing is written here.
+ */
+export async function scanInventoryPhoto(
+  imageDataUrl: string,
+): Promise<ScannedInventoryItem[]> {
+  const parts: GeminiPart[] = []
+  const prepared = await downscaleImage(imageDataUrl, 1600, 0.86)
+  const [meta, data] = prepared.split(",")
+  const mime = meta.match(/data:([^;]+);base64/)?.[1] ?? "image/jpeg"
+  parts.push({ inline_data: { mime_type: mime, data } })
+  parts.push({ text: PANTRY_PROMPT })
+
+  const raw = await callGeminiParts<unknown>(parts)
+  if (!Array.isArray(raw)) return []
+
+  const out: ScannedInventoryItem[] = []
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue
+    const item = entry as { name?: unknown; quantity?: unknown; unit?: unknown }
+    const name = asText(item.name)
+    if (!name) continue
+    const q = Number(item.quantity)
+    out.push({
+      name,
+      quantity: Number.isFinite(q) && q > 0 ? q : null,
+      unit: asText(item.unit) || null,
+    })
+  }
+  return out
 }

@@ -17,10 +17,12 @@ interface FoodPlanningAssistantProps {
 }
 
 export interface FoodAdvice {
+  topic?: "nutrition" | "fitness"
   verdict: "green" | "yellow" | "red"
   sugar: "green" | "yellow" | "red" | "unknown"
   summary: string
   reasons: string[]
+  tips: string[]
   portion: string
   pairing: string[]
   alternatives: string[]
@@ -39,13 +41,43 @@ interface ChatMessage {
   advice?: FoodAdvice
 }
 
-const EXAMPLES = ["Is naan good for me today?", "What should I eat for dinner?"]
+const EXAMPLES = [
+  "Is naan good for me today?",
+  "What should I eat for dinner?",
+  "What workout suits my body type?",
+]
 
 const verdictTone = {
   green: "sage",
   yellow: "warning",
   red: "error",
 } as const
+
+function bmiCategory(bmi: number): string {
+  if (bmi < 18.5) return "underweight"
+  if (bmi < 25) return "normal weight"
+  if (bmi < 30) return "overweight"
+  return "obese"
+}
+
+function bodyMetrics(nutritionProfile: UserProfile | null): string {
+  if (!nutritionProfile || !nutritionProfile.height_cm || !nutritionProfile.weight_kg) {
+    return "Body metrics: no height/weight saved yet."
+  }
+  const heightM = nutritionProfile.height_cm / 100
+  const bmi = nutritionProfile.weight_kg / (heightM * heightM)
+  const lines = [
+    `- Weight: ${nutritionProfile.weight_kg} kg`,
+    `- Height: ${nutritionProfile.height_cm} cm`,
+    `- BMI: ${bmi.toFixed(1)} (${bmiCategory(bmi)})`,
+    `- Age: ${nutritionProfile.age}`,
+    `- Sex: ${nutritionProfile.sex}`,
+    `- Goal: ${nutritionProfile.goal}`,
+    `- Activity level: ${nutritionProfile.activity_level}`,
+    `- Daily activity target: ${nutritionProfile.daily_activity_min} min`,
+  ]
+  return `Body metrics:\n${lines.join("\n")}`
+}
 
 function contextForPrompt(
   profile: HealthProfile,
@@ -60,6 +92,8 @@ function contextForPrompt(
     0,
   )
   return `${summarizeHealthForPrompt(profile)}
+
+${bodyMetrics(nutritionProfile)}
 
 Today's logged intake:
 - Calories: ${totals.calories}${
@@ -80,7 +114,7 @@ Today's logged intake:
       : "not tracked yet; do not estimate a daily sugar total"
   }
 
-The user is asking for practical meal-planning guidance, not a diagnosis.`
+The user may ask for practical meal-planning or general fitness guidance. Never give a medical diagnosis.`
 }
 
 function historyForPrompt(messages: ChatMessage[]): string {
@@ -91,6 +125,8 @@ function historyForPrompt(messages: ChatMessage[]): string {
 }
 
 function normalizeAdvice(result: Partial<FoodAdvice>): FoodAdvice {
+  const topic: FoodAdvice["topic"] =
+    result.topic === "fitness" ? "fitness" : "nutrition"
   const verdict =
     result.verdict === "green" || result.verdict === "red"
       ? result.verdict
@@ -101,6 +137,7 @@ function normalizeAdvice(result: Partial<FoodAdvice>): FoodAdvice {
     ? result.sugar as FoodAdvice["sugar"]
     : "unknown"
   return {
+    topic,
     verdict,
     sugar,
     summary:
@@ -111,6 +148,11 @@ function normalizeAdvice(result: Partial<FoodAdvice>): FoodAdvice {
       ? result.reasons
           .filter((v): v is string => typeof v === "string")
           .slice(0, 4)
+      : [],
+    tips: Array.isArray(result.tips)
+      ? result.tips
+          .filter((v): v is string => typeof v === "string")
+          .slice(0, 6)
       : [],
     portion:
       typeof result.portion === "string"
@@ -149,9 +191,10 @@ function TypingBubble() {
 
 function AssistantMessage({ message }: { message: ChatMessage }) {
   const advice = message.advice
+  const isFitness = advice?.topic === "fitness"
   return (
     <div className="w-full max-w-full self-start rounded-2xl rounded-bl-md border border-border bg-background px-3.5 py-3">
-      {advice && (
+      {advice && !isFitness && (
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={verdictTone[advice.verdict]}>
             {advice.verdict.toUpperCase()} overall fit
@@ -175,7 +218,14 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
           ))}
         </ul>
       )}
-      {advice && (
+      {advice && isFitness && advice.tips.length > 0 && (
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-muted-foreground">
+          {advice.tips.map((tip) => (
+            <li key={tip}>{tip}</li>
+          ))}
+        </ul>
+      )}
+      {advice && !isFitness && (
         <div className="mt-3 grid gap-2 text-[13px] sm:grid-cols-3">
           <div className="rounded-lg bg-muted p-2.5">
             <p className="text-[11px] text-muted-foreground">Portion</p>
@@ -195,7 +245,7 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
           </div>
         </div>
       )}
-      {advice?.estimated_addition && (
+      {advice?.estimated_addition && !isFitness && (
         <p className="mt-2.5 text-xs tabular text-muted-foreground">
           Estimated addition: {advice.estimated_addition.calories} kcal · P
           {advice.estimated_addition.protein_g} · C
@@ -236,10 +286,14 @@ export default function FoodPlanningAssistant({
     setLoading(true)
     try {
       const result = await callGeminiJSON<Partial<FoodAdvice>>(
-        `You are a careful nutrition planning assistant. Use the user's context below.
-Return JSON only with exactly these keys: verdict, sugar, summary, reasons, portion, pairing, alternatives, estimated_addition.
+        `You are a supportive health instructor and nutritionist assistant. Use the user's context below.
+Return JSON only with exactly these keys: topic, verdict, sugar, summary, reasons, tips, portion, pairing, alternatives, estimated_addition.
+topic must be "nutrition" for food/meal questions, or "fitness" for workout, training, motivation, recovery, or body-metric questions.
 verdict must be green, yellow, or red. sugar must be green, yellow, red, or unknown.
-Use yellow when portion or preparation matters. Use unknown when sugar data is unavailable. Never invent a tracked sugar total. Be practical and concise. Mention uncertainty when the food or portion is unclear. Keep the summary to 1-3 sentences so it reads well in a chat.
+For nutrition topics: use yellow when portion or preparation matters; use unknown when sugar data is unavailable; never invent a tracked sugar total; fill portion, pairing, alternatives, and estimated_addition.
+For fitness topics: leave portion, pairing, alternatives, and estimated_addition empty; put practical, safe, beginner-friendly suggestions in "tips" (3-6 short items); ground workout advice in the user's weight, BMI, goal, and activity level. Encourage gradual progression and rest.
+Be practical and concise. Mention uncertainty when details are unclear. Keep the summary to 1-3 sentences so it reads well in a chat.
+If the user asks about an injury, pain, a diagnosed condition, or a medical concern, do not diagnose or prescribe — gently recommend consulting a doctor, dietitian, or certified trainer, and keep guidance general and safe.
 
 USER CONTEXT:
 ${contextForPrompt(profile, nutritionProfile, todayTotals, log)}
@@ -274,8 +328,9 @@ ${clean}`,
         {empty && !loading && (
           <div className="rounded-xl bg-muted p-4 text-sm leading-relaxed text-muted-foreground">
             Ask whether a food fits your goals today, what to eat next, or how
-            to adjust a meal. Sugar shows as unknown until it is tracked by the
-            food estimate.
+            to adjust a meal. You can also ask about workouts, training, or
+            your body metrics. Sugar shows as unknown until it is tracked by
+            the food estimate.
           </div>
         )}
         {messages.map((message, index) =>
@@ -337,8 +392,9 @@ ${clean}`,
         </button>
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-        General food-planning support only. Your report scores are treated as
-        dated report values, not diagnoses.
+        General fitness and food-planning support only — not medical advice.
+        For complex concerns, injuries, or diagnosed conditions, please consult
+        a doctor, dietitian, or certified trainer.
       </p>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Camera,
   Cookie,
@@ -10,7 +10,14 @@ import {
   UtensilsCrossed,
   X,
 } from "lucide-react"
-import { DAYS, dateInWeek, dayFullLabel, parseISODate } from "../lib/dates"
+import {
+  DAYS,
+  dateInWeek,
+  dayFullLabel,
+  parseISODate,
+  toISODate,
+} from "../lib/dates"
+import { totalsForDate } from "../lib/mealLog"
 import type {
   Meal,
   MealPlanSlot,
@@ -58,7 +65,18 @@ export default function PlannerMobileView({
   onLog,
   onRemoveLog,
 }: PlannerMobileViewProps) {
-  const [day, setDay] = useState(0)
+  const today = toISODate(new Date())
+  const todayIndex = DAYS.findIndex(
+    (_, i) => dateInWeek(weekStart, i) === today,
+  )
+  const [day, setDay] = useState<number | null>(null)
+
+  // Reset to "today" whenever the visible week changes.
+  useEffect(() => {
+    setDay(null)
+  }, [weekStart])
+
+  const activeIndex = day ?? (todayIndex >= 0 ? todayIndex : 0)
 
   const slotKey = (date: ISODate, type: MealType) => `${date}-${type}`
 
@@ -75,7 +93,10 @@ export default function PlannerMobileView({
         return sum + (meal?.calories || 0) * (slot.servings || 1)
       }, 0)
 
-  const activeDate = dateInWeek(weekStart, day)
+  const eatenCalories = (date: ISODate): number =>
+    totalsForDate(logged, date).calories
+
+  const activeDate = dateInWeek(weekStart, activeIndex)
 
   return (
     <div>
@@ -83,7 +104,9 @@ export default function PlannerMobileView({
       <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 mb-4">
         {DAYS.map((d, i) => {
           const date = dateInWeek(weekStart, i)
-          const active = i === day
+          const active = i === activeIndex
+          const eaten = eatenCalories(date)
+          const isToday = date === today
           return (
             <button
               key={date}
@@ -94,7 +117,20 @@ export default function PlannerMobileView({
                   : "bg-card text-foreground border-border hover:bg-muted"
               }`}
             >
-              <span className="text-sm font-semibold">{dayFullLabel(d)}</span>
+              <span className="text-sm font-semibold">
+                {dayFullLabel(d)}
+                {isToday && (
+                  <span
+                    className={`ml-1 text-[9px] font-bold uppercase tracking-wide ${
+                      active
+                        ? "text-primary-foreground/80"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    today
+                  </span>
+                )}
+              </span>
               <span
                 className={`tabular text-[10px] ${
                   active
@@ -102,8 +138,19 @@ export default function PlannerMobileView({
                     : "text-muted-foreground"
                 }`}
               >
-                {parseISODate(date).getDate()} · {plannedCalories(date)} kcal
+                {parseISODate(date).getDate()} · {plannedCalories(date)} plan
               </span>
+              {eaten > 0 && (
+                <span
+                  className={`tabular text-[10px] ${
+                    active
+                      ? "text-primary-foreground/80"
+                      : "text-terracotta"
+                  }`}
+                >
+                  {eaten} eaten
+                </span>
+              )}
             </button>
           )
         })}
@@ -138,9 +185,10 @@ export default function PlannerMobileView({
                   onClick={() => onLog(activeDate, type, "add")}
                   title="Log what I ate"
                   aria-label={`Log what you ate for ${type}`}
-                  className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:border-ring hover:text-terracotta hover:bg-muted active:scale-95"
+                  className="ml-auto flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-ring hover:text-terracotta hover:bg-muted active:scale-95"
                 >
-                  <Camera size={15} />
+                  <Camera size={14} />
+                  Log what I ate
                 </button>
               </div>
 

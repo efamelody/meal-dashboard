@@ -159,7 +159,7 @@ export default function AiChatFab() {
     <>
       <button
         type="button"
-        aria-label="Plan what to eat — drag to move, tap to open"
+        aria-label="Ask your health assistant — drag to move, tap to open"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
@@ -176,8 +176,8 @@ export default function AiChatFab() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Plan what to eat"
-        description="Chat with your meal assistant — answers use your health profile and today's log."
+        title="Your health assistant"
+        description="Chat about food, fitness, and training — answers use your health profile and today's log."
         maxWidth="max-w-lg"
       >
         {profile ? (

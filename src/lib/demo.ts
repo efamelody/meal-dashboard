@@ -1,7 +1,7 @@
 // Sample data shown to visitors who haven't signed in yet ("preview mode").
 // Everything here is a local constant — anonymous users never touch the real
 // tables (no anon grants, RLS blocks them anyway). Sign in to see your own data.
-import { DAYS, addDays, dateInWeek, startOfWeek } from "./dates"
+import { DAYS, addDays, dateInWeek, startOfWeek, toISODate } from "./dates"
 import type {
   DashboardSummary,
   GroceryItem,
@@ -9,6 +9,7 @@ import type {
   Meal,
   MealPlanSlot,
   UserProfile,
+  WeightLogEntry,
 } from "./types"
 import type { Activity, ISODate, MealType } from "./types"
 import type { FeedPost, PostSnapshot } from "./types"
@@ -413,6 +414,24 @@ export function buildDemoHome(today: ISODate): HomeData {
     },
     todayActivities,
   }
+}
+
+/** A small downward-trending weigh-in series for the signed-out preview. */
+export function buildDemoWeightLogs(): WeightLogEntry[] {
+  const today = toISODate(new Date())
+  const seeds = [
+    { daysAgo: 26, weight: 61.2 },
+    { daysAgo: 19, weight: 60.9 },
+    { daysAgo: 12, weight: 60.5 },
+    { daysAgo: 5, weight: 60.2 },
+    { daysAgo: 0, weight: 60.0 },
+  ]
+  return seeds.map((seed) => ({
+    id: `demo-wlog-${seed.daysAgo}`,
+    user_id: DEMO_USER,
+    date: addDays(today, -seed.daysAgo),
+    weight_kg: seed.weight,
+  }))
 }
 
 export function buildDemoActivities(from: ISODate, to: ISODate): Activity[] {

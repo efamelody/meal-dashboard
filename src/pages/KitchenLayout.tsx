@@ -59,7 +59,7 @@ export default function KitchenLayout() {
           ))}
           <span className="ml-auto hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground pr-1 pb-2.5">
             <Refrigerator size={13} />
-            Everything here is yours only
+            Inventory can be shared with your household
           </span>
         </nav>
       </PageHeader>
