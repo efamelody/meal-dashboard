@@ -41,17 +41,19 @@ app that pairs a full meal-planning dashboard with Gemini-powered AI assistance.
 - **Smart deduction** — items already marked *in stock* in your inventory are
   pre-checked as bought.
 
-### 🩺 Health Baseline → Avoid List → Meal Flags
-- **Import a check-up photo** — AI reads the screening sheet (visceral fat,
-  BMI, cholesterol, blood pressure, glucose, …) into an editable baseline.
-- The analysis also saves a summary like *"Due to high visceral fat, cut back
-  on …"* plus a structured **avoid list** (avoid vs. limit, each tied to the
-  metric that motivated it). Review it in the Health baseline card and remove
-  or clear items freely.
+### 🩺 Health Profile → Summary + Avoid List → Meal Flags
+- **Import a check-up photo or type your focus** — AI reads the screening
+  sheet (or your own notes) and writes a plain-language focus summary
+  (e.g. *"Body fat is high, so focus on lowering it…"*). You edit the summary
+  freely before saving.
+- The analysis also saves a structured **avoid list** (avoid vs. limit, each
+  tied to the finding that motivated it). Review it in the Health profile card
+  and remove or clear items freely.
 - **Logged meals get flagged** — when you log a meal by photo, Gemini checks
   every identified food against your saved avoid list. Matching foods carry a
   `Flagged` badge with the reason ("high sugar — visceral fat"), in the
   logging modal, on the Home dashboard, and on the Progress page.
+- Your summary is used as context by the meal-planning chat assistant.
 - Works signed-in (Supabase `health_profiles` + `meal_log` flag columns) and
   signed-out (localStorage).
 

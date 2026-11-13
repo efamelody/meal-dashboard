@@ -117,7 +117,7 @@ export default function DashboardLayout({
           <MobileTopBar />
           {!session && <PreviewBanner />}
           <MealLogBanner />
-          <main className="flex-1 min-w-0 pb-4">
+          <main className="flex-1 min-w-0 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-4">
             {children ?? <Outlet />}
             <AiFooter />
           </main>

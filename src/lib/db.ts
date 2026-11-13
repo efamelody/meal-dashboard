@@ -34,7 +34,7 @@ import type {
   RsvpStatus,
 } from "./types"
 import { STAPLE_ITEMS } from "./staples"
-import type { HealthProfile } from "./health"
+import type { HealthProfile } from "./healthProfile"
 
 const DAYS: DayOfWeek[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const MEAL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner", "Snack"]
@@ -642,7 +642,7 @@ export async function saveUserProfile(
   return mapUserProfile(data)
 }
 
-// ── Health baseline ────────────────────────────────────────────────────────
+// ── Health profile ─────────────────────────────────────────────────────────
 
 export async function getHealthProfile(): Promise<HealthProfile | null> {
   const userId = await getUserId()

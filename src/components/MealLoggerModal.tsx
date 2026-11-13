@@ -17,7 +17,7 @@ import type {
   MealEstimateItem,
   MealItemFlag,
 } from "../lib/gemini"
-import { loadHealthProfile, type HealthAvoidItem } from "../lib/health"
+import { loadHealthProfile, type HealthAvoidItem } from "../lib/healthProfile"
 import { newFoodId } from "../lib/mealLog"
 import type { LoggedFoodItem } from "../lib/types"
 import { Button, FoodFlagBadge, Modal } from "./ui"

@@ -59,10 +59,10 @@ const FILL_TYPES: MealType[] = ["Breakfast", "Lunch", "Dinner"]
 const MAX_SERVINGS = 12
 
 const TYPE_ACCENT: Record<MealType, string> = {
-  Breakfast: "border-l-amber-400",
-  Lunch: "border-l-emerald-400",
-  Dinner: "border-l-sky-400",
-  Snack: "border-l-rose-400",
+  Breakfast: "border-l-terracotta",
+  Lunch: "border-l-success",
+  Dinner: "border-l-[#3f5b78]",
+  Snack: "border-l-warning",
 }
 
 function verdictLine(summary: DashboardSummary): string {
@@ -634,8 +634,8 @@ export default function PlannerPage() {
                                 </div>
                               </>
                             ) : (
-                              <p className="text-[10px] text-muted-foreground italic">
-                                Empty
+                              <p className="text-[10px] text-muted-foreground">
+                                Nothing planned yet
                               </p>
                             )}
                           </div>
@@ -646,9 +646,9 @@ export default function PlannerPage() {
                                 handleChange(date, type, e.target.value)
                               }
                               aria-label={`${type} meal on ${dayFullLabel(day)}`}
-                              className="flex-1 min-w-0 px-1.5 py-1 pr-5 rounded-md border border-border bg-background text-[10px] focus:outline-none focus:ring-1 focus:ring-ring"
+                              className="flex-1 min-w-0 appearance-none pl-2 pr-6 py-1.5 rounded-lg border border-border bg-background text-[11px] text-foreground transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
                             >
-                              <option value="">— none —</option>
+                              <option value="">Choose a meal…</option>
                               {meals.map((m) => (
                                 <option key={m.id} value={m.id}>
                                   {m.name}
@@ -661,7 +661,8 @@ export default function PlannerPage() {
                                 setLoggerSlot({ date, type, mode: "add" })
                               }
                               title="Log what I ate"
-                              className="p-1 rounded-md text-muted-foreground hover:text-terracotta hover:bg-muted transition-colors"
+                              aria-label={`Log what you ate for ${type} on ${dayFullLabel(day)}`}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:border-ring hover:text-terracotta hover:bg-muted"
                             >
                               <Camera size={12} />
                             </button>

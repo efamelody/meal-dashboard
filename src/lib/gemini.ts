@@ -4,7 +4,7 @@
 
 import { ACTIVITY_LABELS, GOAL_LABELS, type FormulaResult } from "./nutrition"
 import type { ActivityLevel, Goal, Sex } from "./types"
-import type { HealthAvoidItem, HealthMetricKey } from "./health"
+import type { HealthAvoidItem } from "./healthProfile"
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
 const DEFAULT_MODEL =
@@ -488,46 +488,42 @@ export async function estimateMealFromPhoto(
   return parseMealEstimate(raw, input.description.trim() || "Logged meal")
 }
 
-export interface HealthImportDraft {
-  measured_at: string
+export interface HealthSummaryResult {
   summary: string
-  focus: string
-  goals: string[]
-  recommendations: string[]
-  metrics: Array<{
-    key: HealthMetricKey
-    value: number
-    unit: string
-    label: string
-    target?: string
-  }>
-  /** One "due to high visceral fat…" statement naming what to cut back on. */
-  avoid_summary?: string
-  /** Food and drink categories to avoid or limit, keyed to the metrics. */
   avoid_list?: HealthAvoidItem[]
 }
 
-/** Extracts a check-up photo into a reviewable draft; the image is not stored. */
-export async function analyzeHealthCheckup(
-  imageDataUrl: string,
-): Promise<HealthImportDraft> {
-  const prepared = await downscaleImage(imageDataUrl, 1600, 0.86)
-  const [meta, data] = prepared.split(",")
-  const mime = meta.match(/data:([^;]+);base64/)?.[1] ?? "image/jpeg"
-  const prompt = `You are extracting a health screening sheet into structured data for the user to review.
-Read handwritten and printed values carefully. Do not diagnose, invent missing values, or turn a report score into a medical diagnosis.
-Use ISO date YYYY-MM-DD. If only month and year are visible, use the first day of that month.
-Also derive diet guidance from the values you read: build one plain-language "avoid_summary" sentence that starts like "Due to high <metric label>…" and names what to eat less of, plus an "avoid_list" of local Malaysian/Singaporean food and drink categories. Derive categories only from metrics whose value is outside its target or clearly elevated (for example high visceral fat → sugary drinks and deep-fried snacks; high cholesterol → fatty meat and full-cream tea; high fasting glucose → sweetened drinks). Severity "avoid" for the worst clashes, "limit" for things to keep small and rare. Do not repeat the same category twice; keep the list to 3–6 items; frame everything as general diet guidance, never as treatment.
+/**
+ * Turns a check-up photo (or the user's own typed notes) into a short,
+ * plain-language focus summary plus an avoid list. The image is not stored.
+ */
+export async function summarizeHealthProfile(input: {
+  imageDataUrl?: string
+  text?: string
+}): Promise<HealthSummaryResult> {
+  const parts: GeminiPart[] = []
+  if (input.imageDataUrl) {
+    const prepared = await downscaleImage(input.imageDataUrl, 1600, 0.86)
+    const [meta, data] = prepared.split(",")
+    const mime = meta.match(/data:([^;]+);base64/)?.[1] ?? "image/jpeg"
+    parts.push({ inline_data: { mime_type: mime, data } })
+  }
+  const sourceNote = input.imageDataUrl
+    ? "Read the health screening sheet in the photo carefully."
+    : `The user typed these notes about what they want to focus on: ${
+        input.text?.trim() || ""
+      }`
+  const prompt = `You are turning a health check-up into a short, plain-language focus summary the user can edit.
+${sourceNote}
+Do not diagnose or invent missing values. Frame everything as general lifestyle guidance, never as medical treatment.
+Highlight the areas the user most needs to focus on, with the reason, in a warm and practical tone (for example: "Body fat is high, so focus on lowering it — less sugar and fried food, more protein and fibre."). Keep the summary to 2-4 sentences.
+Also derive a short "avoid_list" of local Malaysian/Singaporean food and drink categories the user should steer away from, based only on findings that are clearly elevated or outside range. Severity "avoid" for the worst clashes, "limit" for things to keep small and rare. Keep the list to 3-6 items with no repeats. Mention uncertainty if handwriting is unclear.
 Return JSON only with this shape:
-{"measured_at":"YYYY-MM-DD","summary":"one cautious plain-language summary","focus":"one sentence about the highest-priority areas","goals":["..."],"recommendations":["..."],"avoid_summary":"one sentence, e.g. Due to high visceral fat, cut back on...","avoid_list":[{"food":"shared food type","reason":"<metric label it stresses>","severity":"avoid|limit"}],"metrics":[{"key":"visceral_fat|bmi|total_cholesterol|retinal_arteriosclerosis_risk|retinal_glucose_metabolism_risk|oxito_liver_score|oxito_back_score|blood_pressure_systolic|blood_pressure_diastolic|fasting_glucose","label":"...","value":0,"unit":"...","target":"..."}]}
-Only include metrics you can actually read. Recommendations must be framed as general next steps or advice visible on the report, not medical treatment. Mention uncertainty in the summary if handwriting is unclear.`
-  const draft = await callGeminiParts<HealthImportDraft>([
-    { inline_data: { mime_type: mime, data } },
-    { text: prompt },
-  ])
+{"summary":"<free-text summary>","avoid_list":[{"food":"shared food type","reason":"<short why, tied to the finding>","severity":"avoid|limit"}]}`
+  parts.push({ text: prompt })
+  const draft = await callGeminiParts<Partial<HealthSummaryResult>>(parts)
   return {
-    ...draft,
-    avoid_summary: asText(draft.avoid_summary),
+    summary: asText(draft.summary),
     avoid_list: parseAvoidList((draft as { avoid_list?: unknown }).avoid_list),
   }
 }

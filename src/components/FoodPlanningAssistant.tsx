@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { SendHorizontal } from "lucide-react"
 import { callGeminiJSON } from "../lib/gemini"
-import { summarizeHealthForPrompt, type HealthProfile } from "../lib/health"
+import {
+  summarizeHealthForPrompt,
+  type HealthProfile,
+} from "../lib/healthProfile"
 import type { LoggedMeal, UserProfile } from "../lib/types"
 import type { DayLogTotals } from "../lib/mealLog"
 import { Badge } from "./ui"
@@ -95,7 +98,7 @@ function normalizeAdvice(result: Partial<FoodAdvice>): FoodAdvice {
   const sugar = ["green", "yellow", "red", "unknown"].includes(
     result.sugar ?? "",
   )
-    ? (result.sugar as FoodAdvice["sugar"])
+    ? result.sugar as FoodAdvice["sugar"]
     : "unknown"
   return {
     verdict,
@@ -253,9 +256,7 @@ ${clean}`,
         { role: "assistant", text: advice.summary, advice },
       ])
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not get meal advice",
-      )
+      setError(err instanceof Error ? err.message : "Could not get meal advice")
     } finally {
       setLoading(false)
     }

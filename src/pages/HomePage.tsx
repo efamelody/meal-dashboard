@@ -465,7 +465,7 @@ export default function HomePage() {
         </Card>
 
         {/* ── Activity ──────────────────────────────────────────── */}
-        <Card>
+        <Card className="order-3 lg:order-2">
           <CardHead
             title="Activity"
             icon={<Dumbbell size={16} className="text-success" />}
@@ -597,162 +597,164 @@ export default function HomePage() {
             )}
           </ul>
         </Card>
-      </div>
 
-      {/* ── Today's meals ───────────────────────────────────────── */}
-      <Card className="mt-4">
-        <CardHead
-          title="Today's meals"
-          action={
-            <Link
-              to="/plan"
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Open plan
-            </Link>
-          }
-        />
-        <ul className="divide-y divide-border -my-1">
-          {home.todaySlots.map((slot) => {
-            const Icon = MEAL_ICONS[slot.meal_type]
-            const loggedEntry = loggedByType.get(slot.meal_type)
-            const planned = slot.meal
-            const plannedKcalForSlot = planned
-              ? planned.calories * slot.servings
-              : 0
-            return (
-              <li key={slot.meal_type} className="py-3">
-                <div className="flex items-start gap-3">
-                  <span
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${MEAL_ACCENT[slot.meal_type]}`}
-                  >
-                    <Icon size={17} />
-                  </span>
+        {/* ── Today's meals ───────────────────────────────────────── */}
+        <Card className="order-2 lg:order-3 lg:col-span-3">
+          <CardHead
+            title="Today's meals"
+            action={
+              <Link
+                to="/plan"
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Open plan
+              </Link>
+            }
+          />
+          <ul className="divide-y divide-border -my-1">
+            {home.todaySlots.map((slot) => {
+              const Icon = MEAL_ICONS[slot.meal_type]
+              const loggedEntry = loggedByType.get(slot.meal_type)
+              const planned = slot.meal
+              const plannedKcalForSlot = planned
+                ? planned.calories * slot.servings
+                : 0
+              return (
+                <li key={slot.meal_type} className="py-3">
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${MEAL_ACCENT[slot.meal_type]}`}
+                    >
+                      <Icon size={17} />
+                    </span>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-sm font-semibold text-foreground">
-                        {slot.meal_type}
-                      </span>
-                      {planned ? (
-                        <span className="text-sm text-foreground">
-                          {planned.name}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-sm font-semibold text-foreground">
+                          {slot.meal_type}
                         </span>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">
-                          Nothing planned
-                        </span>
+                        {planned ? (
+                          <span className="text-sm text-foreground">
+                            {planned.name}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            Nothing planned
+                          </span>
+                        )}
+                        {slot.servings > 1 && (
+                          <Badge tone="neutral">×{slot.servings}</Badge>
+                        )}
+                        {loggedEntry && <Badge tone="sage">Logged</Badge>}
+                      </div>
+
+                      {planned && (
+                        <p className="tabular text-xs text-muted-foreground">
+                          {plannedKcalForSlot} kcal planned
+                        </p>
                       )}
-                      {slot.servings > 1 && (
-                        <Badge tone="neutral">×{slot.servings}</Badge>
+
+                      {loggedEntry && (
+                        <ul className="mt-1 space-y-0.5">
+                          {loggedEntry.foods.map((food) => (
+                            <li
+                              key={food.id}
+                              className="tabular text-xs leading-relaxed text-muted-foreground"
+                            >
+                              <span className="text-foreground">
+                                {food.food}
+                              </span>{" "}
+                              · {food.calories} kcal{" "}
+                              {food.flag_level && (
+                                <FoodFlagBadge
+                                  level={food.flag_level}
+                                  reason={food.flag_reason}
+                                  className="ml-1 align-[1px]"
+                                />
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       )}
-                      {loggedEntry && <Badge tone="sage">Logged</Badge>}
                     </div>
 
-                    {planned && (
-                      <p className="tabular text-xs text-muted-foreground">
-                        {plannedKcalForSlot} kcal planned
-                      </p>
-                    )}
-
                     {loggedEntry && (
-                      <ul className="mt-1 space-y-0.5">
-                        {loggedEntry.foods.map((food) => (
-                          <li
-                            key={food.id}
-                            className="tabular text-xs leading-relaxed text-muted-foreground"
-                          >
-                            <span className="text-foreground">{food.food}</span>{" "}
-                            · {food.calories} kcal{" "}
-                            {food.flag_level && (
-                              <FoodFlagBadge
-                                level={food.flag_level}
-                                reason={food.flag_reason}
-                                className="ml-1 align-[1px]"
-                              />
-                            )}
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="shrink-0 text-right">
+                        <p className="tabular text-base font-semibold leading-tight text-foreground">
+                          {loggedEntry.calories}
+                        </p>
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          kcal
+                        </p>
+                      </div>
                     )}
                   </div>
 
-                  {loggedEntry && (
-                    <div className="shrink-0 text-right">
-                      <p className="tabular text-base font-semibold leading-tight text-foreground">
-                        {loggedEntry.calories}
-                      </p>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        kcal
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[52px] sm:pl-0">
-                  {loggedEntry ? (
-                    <>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[52px] sm:pl-0">
+                    {loggedEntry ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            openLogger(slot.meal_type, loggedEntry.foods, true)
+                          }
+                        >
+                          <Plus size={14} />
+                          Add food
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            openLogger(slot.meal_type, loggedEntry.foods)
+                          }
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Remove ${slot.meal_type} log`}
+                          onClick={() => handleLogRemove(slot.meal_type)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </>
+                    ) : planned ? (
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() =>
-                          openLogger(slot.meal_type, loggedEntry.foods, true)
-                        }
-                      >
-                        <Plus size={14} />
-                        Add food
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          openLogger(slot.meal_type, loggedEntry.foods)
-                        }
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`Remove ${slot.meal_type} log`}
-                        onClick={() => handleLogRemove(slot.meal_type)}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </>
-                  ) : planned ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openLogger(slot.meal_type)}
-                    >
-                      Log
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
                         onClick={() => openLogger(slot.meal_type)}
                       >
-                        <Plus size={14} />
                         Log
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => navigate("/plan")}
-                      >
-                        Plan
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      </Card>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => openLogger(slot.meal_type)}
+                        >
+                          <Plus size={14} />
+                          Log
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate("/plan")}
+                        >
+                          Plan
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+      </div>
 
       {/* ── Kitchen + Community ─────────────────────────────────── */}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">

@@ -3,8 +3,12 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { Sparkles } from "lucide-react"
 import { Modal } from "./ui"
 import FoodPlanningAssistant from "./FoodPlanningAssistant"
-import { getUserProfile } from "../lib/db"
-import { loadHealthProfile, type HealthProfile } from "../lib/health"
+import { getHealthProfile, getUserProfile } from "../lib/db"
+import {
+  loadHealthProfile,
+  saveHealthProfile,
+  type HealthProfile,
+} from "../lib/healthProfile"
 import { totalsForDate } from "../lib/mealLog"
 import { toISODate } from "../lib/dates"
 import type { UserProfile } from "../lib/types"
@@ -76,8 +80,21 @@ export default function AiChatFab() {
 
   useEffect(() => {
     if (!open) return
-    setProfile(loadHealthProfile())
     let cancelled = false
+    async function loadHealth() {
+      try {
+        const remote = await getHealthProfile()
+        if (!cancelled && remote) {
+          setProfile(remote)
+          saveHealthProfile(remote)
+          return
+        }
+      } catch {
+        // Not signed in — fall back to the local copy.
+      }
+      if (!cancelled) setProfile(loadHealthProfile())
+    }
+    void loadHealth()
     getUserProfile()
       .then((result) => {
         if (!cancelled) setNutritionProfile(result)
@@ -112,7 +129,10 @@ export default function AiChatFab() {
     const dy = drag.py - event.clientY
     if (Math.abs(dx) > 6 || Math.abs(dy) > 6) drag.moved = true
     if (!drag.moved) return
-    const next = clampPos({ right: drag.cur.right + dx, bottom: drag.cur.bottom + dy })
+    const next = clampPos({
+      right: drag.cur.right + dx,
+      bottom: drag.cur.bottom + dy,
+    })
     drag.px = event.clientX
     drag.py = event.clientY
     drag.cur = next
