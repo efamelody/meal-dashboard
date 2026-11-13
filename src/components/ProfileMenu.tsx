@@ -7,8 +7,10 @@ import {
   UserRound,
   Settings,
   BookOpen,
+  Users,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
+import { useNotifications } from "../context/NotificationsContext"
 import { supabase } from "../lib/supabase"
 
 export function Avatar({
@@ -47,6 +49,7 @@ export default function ProfileMenu({
   const { session } = useAuth()
   const navigate = useNavigate()
   const name = useProfileName()
+  const { incomingRequests } = useNotifications()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -128,6 +131,20 @@ export default function ProfileMenu({
           >
             <UserRound size={15} className="text-muted-foreground" />
             Profile &amp; goals
+          </Link>
+          <Link
+            to="/community"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+          >
+            <Users size={15} className="text-muted-foreground" />
+            <span className="flex-1">Friends</span>
+            {incomingRequests > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-semibold flex items-center justify-center">
+                {incomingRequests}
+              </span>
+            )}
           </Link>
           <Link
             to="/profile?section=settings"

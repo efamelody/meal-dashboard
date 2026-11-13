@@ -57,6 +57,7 @@ import {
   isGenericActivityName,
 } from "../lib/activityMeta"
 import { demoFeed } from "../lib/demo"
+import { FEATURES } from "../lib/features"
 import { useAuth } from "../context/AuthContext"
 import { useNotifications } from "../context/NotificationsContext"
 import { useToast } from "../components/Toast"
@@ -674,8 +675,12 @@ export default function CommunityPage() {
   return (
     <PageContainer>
       <PageHeader
-        title="Community"
-        subtitle="Share meals, recipes, and activity with friends."
+        title={FEATURES.communityFeed ? "Community" : "Friends"}
+        subtitle={
+          FEATURES.communityFeed
+            ? "Share meals, recipes, and activity with friends."
+            : "Find people, send requests, and manage your friends."
+        }
         actions={
           <Link
             to="/plans"
@@ -687,8 +692,13 @@ export default function CommunityPage() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div
+        className={
+          FEATURES.communityFeed ? "grid gap-4 lg:grid-cols-3" : "grid gap-4"
+        }
+      >
         {/* ── Feed column ─────────────────────────────────────── */}
+        {FEATURES.communityFeed && (
         <div className="space-y-4 lg:col-span-2">
           {/* Composer */}
           <Card>
@@ -947,6 +957,7 @@ export default function CommunityPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Friends sidebar ─────────────────────────────────── */}
         <div>

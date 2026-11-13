@@ -36,6 +36,8 @@ export interface UniversalActivityFormProps {
   submitLabel?: string
   /** Extra block rendered between the fields and the share/save section. */
   footer?: ReactNode
+  /** Show the share-to-community option. Defaults to true. */
+  showShare?: boolean
 }
 
 export default function UniversalActivityForm({
@@ -46,6 +48,7 @@ export default function UniversalActivityForm({
   saving = false,
   submitLabel = "Save activity",
   footer,
+  showShare = true,
 }: UniversalActivityFormProps) {
   const category = inferActivityCategory(value.name)
   const Icon = ACTIVITY_ICONS[category]
@@ -359,6 +362,7 @@ export default function UniversalActivityForm({
       {footer}
 
       {/* ── Privacy & sharing ───────────────────────────────────────── */}
+      {showShare && (
       <fieldset className="rounded-2xl border border-border bg-card p-4">
         <legend className="px-1 text-[13px] font-semibold text-foreground">
           Privacy
@@ -411,6 +415,7 @@ export default function UniversalActivityForm({
           </div>
         )}
       </fieldset>
+      )}
 
       <Button type="submit" size="lg" full loading={saving}>
         {submitLabel}

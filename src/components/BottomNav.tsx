@@ -5,10 +5,8 @@ import {
   Refrigerator,
   Dumbbell,
   ChartLine,
-  Users,
 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
-import { useNotifications } from "../context/NotificationsContext"
 
 const links = [
   { to: "/", label: "Home", icon: House, end: true },
@@ -16,12 +14,10 @@ const links = [
   { to: "/kitchen", label: "Kitchen", icon: Refrigerator, end: false },
   { to: "/activity", label: "Activity", icon: Dumbbell, end: false },
   { to: "/progress", label: "Progress", icon: ChartLine, end: false },
-  { to: "/community", label: "Community", icon: Users, end: false },
 ]
 
 export default function BottomNav() {
   const { session } = useAuth()
-  const { incomingRequests } = useNotifications()
   const navLinks = links.map((link) =>
     link.label === "Home" ? { ...link, to: session ? "/" : "/demo" } : link,
   )
@@ -31,7 +27,7 @@ export default function BottomNav() {
       aria-label="Primary"
       className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur border-t border-border pb-[env(safe-area-inset-bottom)]"
     >
-      <div className="grid grid-cols-6">
+      <div className="grid grid-cols-5">
         {navLinks.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={label}
@@ -53,11 +49,6 @@ export default function BottomNav() {
                   }`}
                 >
                   <Icon size={19} strokeWidth={isActive ? 2.2 : 1.8} />
-                  {label === "Community" && incomingRequests > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-error text-white text-[9px] font-semibold flex items-center justify-center">
-                      {incomingRequests}
-                    </span>
-                  )}
                 </span>
                 {label}
               </>

@@ -5,13 +5,11 @@ import {
   Refrigerator,
   ChartLine,
   Dumbbell,
-  Users,
   BookOpen,
 } from "lucide-react"
 import Brand from "./Brand"
 import ProfileMenu from "./ProfileMenu"
 import { useAuth } from "../context/AuthContext"
-import { useNotifications } from "../context/NotificationsContext"
 
 const links = [
   { to: "/", label: "Home", icon: House, end: true },
@@ -19,14 +17,12 @@ const links = [
   { to: "/kitchen", label: "Kitchen", icon: Refrigerator, end: false },
   { to: "/activity", label: "Activity", icon: Dumbbell, end: false },
   { to: "/progress", label: "Progress", icon: ChartLine, end: false },
-  { to: "/community", label: "Community", icon: Users, end: false },
 ]
 
 export { links as NAV_LINKS }
 
 export default function Sidebar() {
   const { session } = useAuth()
-  const { incomingRequests } = useNotifications()
   const navLinks = links.map((link) =>
     link.label === "Home" ? { ...link, to: session ? "/" : "/demo" } : link,
   )
@@ -60,11 +56,6 @@ export default function Sidebar() {
               <>
                 <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} />
                 <span className="flex-1">{label}</span>
-                {label === "Community" && incomingRequests > 0 && (
-                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-error text-white text-[10px] font-semibold flex items-center justify-center">
-                    {incomingRequests}
-                  </span>
-                )}
               </>
             )}
           </NavLink>

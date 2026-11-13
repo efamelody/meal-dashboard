@@ -50,6 +50,7 @@ import {
   updateActivity,
 } from "../lib/db"
 import { buildDemoActivities, demoProfile } from "../lib/demo"
+import { FEATURES } from "../lib/features"
 import { addDays, toISODate } from "../lib/dates"
 import type { Activity, UserProfile } from "../lib/types"
 
@@ -454,6 +455,7 @@ export default function ActivityLogPage() {
               submitLabel={
                 form.share ? "Save & share activity" : "Save activity"
               }
+              showShare={FEATURES.communitySharing}
               footer={
                 <CalorieEstimateCard
                   open={estimateOpen}
