@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar"
 import BottomNav from "./BottomNav"
 import ProfileMenu from "./ProfileMenu"
 import AiFooter from "./AiFooter"
+import AiChatFab from "./AiChatFab"
 import MealLogBanner from "./MealLogBanner"
 import Brand from "./Brand"
 import { useAuth } from "../context/AuthContext"
@@ -122,6 +123,7 @@ export default function DashboardLayout({
           </main>
         </div>
         <BottomNav />
+        <AiChatFab />
       </div>
     </NotificationsProvider>
   )

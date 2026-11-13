@@ -38,8 +38,6 @@ import type { Activity, LoggedFoodItem, MealType } from "../lib/types"
 import { PageContainer, PageHeader } from "../components/PageHeader"
 import MealLoggerModal from "../components/MealLoggerModal"
 import { useToast } from "../components/Toast"
-import FoodPlanningAssistant from "../components/FoodPlanningAssistant"
-import { loadHealthProfile } from "../lib/health"
 import {
   Badge,
   Button,
@@ -755,15 +753,6 @@ export default function HomePage() {
           })}
         </ul>
       </Card>
-
-      <div className="mt-4">
-        <FoodPlanningAssistant
-          profile={loadHealthProfile()}
-          nutritionProfile={profile}
-          todayTotals={logged}
-          log={log}
-        />
-      </div>
 
       {/* ── Kitchen + Community ─────────────────────────────────── */}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
