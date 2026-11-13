@@ -27,11 +27,9 @@ export interface MetBand {
 
 /** Category-level bands (used when the specific name isn't recognised). */
 const MET_BY_CATEGORY: Record<ActivityType, MetBand> = {
-  walking: { easy: 2.0, moderate: 3.5, vigorous: 5.0 },
-  running: { easy: 7.0, moderate: 9.5, vigorous: 12.0 },
-  cycling: { easy: 4.0, moderate: 6.8, vigorous: 10.0 },
+  cardio: { easy: 4.0, moderate: 6.0, vigorous: 8.0 },
   strength: { easy: 3.5, moderate: 5.0, vigorous: 6.0 },
-  sports: { easy: 4.0, moderate: 6.0, vigorous: 8.0 },
+  mobility: { easy: 2.0, moderate: 3.0, vigorous: 4.5 },
   other: { easy: 3.0, moderate: 4.5, vigorous: 7.0 },
 }
 
@@ -84,17 +82,17 @@ const MET_BY_NAME: Array<{
   {
     re: /\b(walk|walking|walked|stroll|berjalan)\b/i,
     label: "walking",
-    band: MET_BY_CATEGORY.walking,
+    band: { easy: 2.0, moderate: 3.5, vigorous: 5.0 },
   },
   {
     re: /\b(run|running|ran|jog|jogging|berlari|lari)\b/i,
     label: "running",
-    band: MET_BY_CATEGORY.running,
+    band: { easy: 7.0, moderate: 9.5, vigorous: 12.0 },
   },
   {
     re: /\b(cycl|cycling|bike|biking|ride|riding|berbasikal)\b/i,
     label: "cycling",
-    band: MET_BY_CATEGORY.cycling,
+    band: { easy: 4.0, moderate: 6.8, vigorous: 10.0 },
   },
   {
     re: /\b(gym|strength|weights?|lifting|lift|calisthenics|bodyweight|angkat berat)\b/i,
@@ -110,6 +108,11 @@ const MET_BY_NAME: Array<{
     re: /\b(tennis|badminton|squash|padel|table tennis)\b/i,
     label: "racquet sports",
     band: { easy: 4.5, moderate: 6.5, vigorous: 8.5 },
+  },
+  {
+    re: /\b(sport|game|match)\b/i,
+    label: "sport",
+    band: { easy: 4.5, moderate: 6.0, vigorous: 8.0 },
   },
   {
     re: /\b(volleyball|bola tampar)\b/i,

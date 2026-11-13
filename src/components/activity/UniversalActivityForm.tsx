@@ -1,18 +1,19 @@
 import type { ReactNode } from "react"
-import { Info } from "lucide-react"
-import { Button } from "../ui"
 import {
   ACTIVITY_ICONS,
-  ACTIVITY_SUGGESTIONS,
-  DETAIL_PLACEHOLDERS,
-  INTENSITIES,
+  ACTIVITY_LABELS,
+  ACTIVITY_TYPES,
+  EFFORT_LEVELS,
+  FEELS,
+  FEEL_META,
   INTENSITY_LABELS,
-  inferActivityCategory,
+  WORKOUT_KINDS,
 } from "../../lib/activityMeta"
 import type {
   ActivityFormErrors,
   ActivityFormValue,
 } from "../../lib/activityForm"
+import { Button } from "../ui"
 
 const fieldCls =
   "w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring"
@@ -50,13 +51,15 @@ export default function UniversalActivityForm({
   footer,
   showShare = true,
 }: UniversalActivityFormProps) {
-  const category = inferActivityCategory(value.name)
-  const Icon = ACTIVITY_ICONS[category]
-  const duration = Number(value.durationMin)
-  const durationLabel = formatDuration(duration)
+  const kinds = value.category === "other" ? [] : WORKOUT_KINDS[value.category]
   const isFuture =
     /^\d{4}-\d{2}-\d{2}$/.test(value.date) &&
     value.date > new Date().toISOString().slice(0, 10)
+
+  function pickCategory(category: ActivityFormValue["category"]) {
+    if (category === value.category) return
+    onChange({ category, name: "" })
+  }
 
   return (
     <form
@@ -67,51 +70,88 @@ export default function UniversalActivityForm({
       }}
       className="space-y-5"
     >
-      {/* ── Required: activity + duration ─────────────────────────── */}
+      {/* ── Category ─────────────────────────────────────────────── */}
       <div>
-        <label htmlFor="act-name" className={labelCls}>
-          Activity{" "}
-          <span className="font-normal text-muted-foreground">(required)</span>
-        </label>
-        <input
-          id="act-name"
-          list="act-name-suggestions"
-          autoComplete="off"
-          value={value.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="e.g. Swimming, evening walk, badminton"
-          aria-invalid={Boolean(errors.name)}
-          aria-describedby={errors.name ? "act-name-error" : "act-name-hint"}
-          className={fieldCls}
-        />
-        <datalist id="act-name-suggestions">
-          {ACTIVITY_SUGGESTIONS.map((s) => (
-            <option key={s.name} value={s.name} />
-          ))}
-        </datalist>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {ACTIVITY_SUGGESTIONS.map((s) => {
-            const active =
-              value.name.trim().toLowerCase() === s.name.toLowerCase()
+        <span className={labelCls}>What kind of workout?</span>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {ACTIVITY_TYPES.map((category) => {
+            const Icon = ACTIVITY_ICONS[category]
+            const active = value.category === category
             return (
               <button
-                key={s.name}
+                key={category}
                 type="button"
-                onClick={() => onChange({ name: s.name })}
-                className={`rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                onClick={() => pickCategory(category)}
+                aria-pressed={active}
+                className={`flex flex-col items-center gap-1.5 rounded-2xl border px-2 py-3 text-center transition-colors ${
                   active
-                    ? "border-primary bg-sage text-accent"
+                    ? "border-primary bg-sage text-accent ring-1 ring-primary"
                     : "border-border bg-background text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {s.name}
+                <Icon size={20} />
+                <span className="text-[13px] font-medium">
+                  {ACTIVITY_LABELS[category]}
+                </span>
               </button>
             )
           })}
-          <span className="self-center text-[11px] text-muted-foreground">
-            or type your own
-          </span>
         </div>
+      </div>
+
+      {/* ── Type ─────────────────────────────────────────────────── */}
+      <div>
+        <label htmlFor="act-name" className={labelCls}>
+          Type{" "}
+          <span className="font-normal text-muted-foreground">(required)</span>
+        </label>
+
+        {value.category === "other" ? (
+          <>
+            <input
+              id="act-name"
+              autoComplete="off"
+              value={value.name}
+              onChange={(e) => onChange({ name: e.target.value })}
+              placeholder="e.g. Rock climbing, Boxing, a game of futsal"
+              aria-invalid={Boolean(errors.name)}
+              aria-describedby={
+                errors.name ? "act-name-error" : "act-name-hint"
+              }
+              className={fieldCls}
+            />
+            <p
+              id="act-name-hint"
+              className="mt-1.5 text-xs text-muted-foreground"
+            >
+              Anything that doesn&apos;t fit the other buckets.
+            </p>
+          </>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {kinds.map((kind) => {
+              const KindIcon = kind.icon
+              const active =
+                value.name.trim().toLowerCase() === kind.label.toLowerCase()
+              return (
+                <button
+                  key={kind.label}
+                  type="button"
+                  onClick={() => onChange({ name: kind.label })}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                    active
+                      ? "border-primary bg-sage text-accent"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <KindIcon size={14} />
+                  {kind.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {errors.name ? (
           <p
             id="act-name-error"
@@ -120,23 +160,14 @@ export default function UniversalActivityForm({
           >
             {errors.name}
           </p>
-        ) : (
-          <p
-            id="act-name-hint"
-            className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"
-          >
-            <Icon size={13} className="shrink-0 text-secondary" />
-            Filed under{" "}
-            {value.name.trim() ? `“${value.name.trim()}”` : "the activity list"}{" "}
-            — any activity is allowed.
-          </p>
-        )}
+        ) : null}
       </div>
 
+      {/* ── Duration + date/time ─────────────────────────────────── */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="act-duration" className={labelCls}>
-            Duration in minutes{" "}
+            How long{" "}
             <span className="font-normal text-muted-foreground">
               (required)
             </span>
@@ -177,22 +208,13 @@ export default function UniversalActivityForm({
               </button>
             ))}
           </div>
-          {errors.durationMin ? (
+          {errors.durationMin && (
             <p
               id="act-duration-error"
               role="alert"
               className="mt-1.5 text-xs text-error"
             >
               {errors.durationMin}
-            </p>
-          ) : (
-            <p
-              id="act-duration-hint"
-              className="mt-1.5 text-xs text-muted-foreground"
-            >
-              {durationLabel
-                ? `About ${durationLabel}`
-                : "Sessions of any length are fine"}
             </p>
           )}
         </div>
@@ -233,27 +255,24 @@ export default function UniversalActivityForm({
             <p className="mt-1.5 text-xs text-muted-foreground">
               {isFuture
                 ? "A future date is saved as a plan you can complete later."
-                : value.time
-                  ? `Logged with a ${value.time} start`
-                  : "Leave blank if you can't remember"}
+                : "Leave blank if you can't remember"}
             </p>
           </div>
         </div>
       </div>
 
-      {/* ── Intensity ───────────────────────────────────────────────── */}
+      {/* ── Effort ───────────────────────────────────────────────── */}
       <div>
-        <span className={labelCls} id="act-intensity-label">
-          Effort{" "}
-          <span className="font-normal text-muted-foreground">(optional)</span>
+        <span className={labelCls} id="act-effort-label">
+          Effort
         </span>
         <div
           role="radiogroup"
-          aria-labelledby="act-intensity-label"
-          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+          aria-labelledby="act-effort-label"
+          className="grid grid-cols-3 gap-2"
         >
-          {INTENSITIES.map((level) => {
-            const active = value.intensity === level
+          {EFFORT_LEVELS.map((level) => {
+            const active = value.effort === level
             return (
               <label
                 key={level}
@@ -265,156 +284,131 @@ export default function UniversalActivityForm({
               >
                 <input
                   type="radio"
-                  name="act-intensity"
+                  name="act-effort"
                   className="sr-only"
                   checked={active}
-                  onChange={() => onChange({ intensity: level })}
+                  onChange={() => onChange({ effort: level })}
                 />
                 {INTENSITY_LABELS[level]}
               </label>
             )
           })}
         </div>
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          Optional — leaving it as “Not sure” keeps estimates honest.
-        </p>
       </div>
 
-      {/* ── Optional details ────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-border bg-surface-sunken/60 p-4">
-        <div className="flex items-center gap-2">
-          <Info size={14} className="text-muted-foreground" />
-          <h3 className="text-[13px] font-semibold text-foreground">
-            More details{" "}
-            <span className="font-normal text-muted-foreground">
-              (all optional)
-            </span>
-          </h3>
+      {/* ── How you feel ─────────────────────────────────────────── */}
+      <div>
+        <span className={labelCls} id="act-feel-label">
+          How do you feel?{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        </span>
+        <div
+          role="radiogroup"
+          aria-labelledby="act-feel-label"
+          className="grid grid-cols-5 gap-2"
+        >
+          {FEELS.map((feel) => {
+            const meta = FEEL_META[feel]
+            const active = value.feel === feel
+            return (
+              <label
+                key={feel}
+                className={`cursor-pointer rounded-xl border px-1 py-2 text-center transition-colors ${
+                  active
+                    ? "border-primary bg-sage ring-1 ring-primary"
+                    : "border-border bg-background hover:text-foreground"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="act-feel"
+                  className="sr-only"
+                  checked={active}
+                  onChange={() => onChange({ feel })}
+                />
+                <span aria-hidden="true" className="block text-lg leading-none">
+                  {meta.emoji}
+                </span>
+                <span className="mt-1 block text-[11px] font-medium text-foreground">
+                  {meta.label}
+                </span>
+              </label>
+            )
+          })}
         </div>
+      </div>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div>
-            <label htmlFor="act-distance" className={labelCls}>
-              Distance (km)
-            </label>
-            <div className="relative">
-              <input
-                id="act-distance"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.1"
-                value={value.distanceKm}
-                onChange={(e) => onChange({ distanceKm: e.target.value })}
-                placeholder="Leave blank if none"
-                aria-invalid={Boolean(errors.distanceKm)}
-                className={`${fieldCls} tabular pr-10`}
-              />
-              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">
-                km
-              </span>
-            </div>
-            {errors.distanceKm && (
-              <p role="alert" className="mt-1.5 text-xs text-error">
-                {errors.distanceKm}
-              </p>
-            )}
-          </div>
-          <p className="self-end pb-1 text-xs leading-relaxed text-muted-foreground">
-            Only add distance if you actually covered one — yoga and strength
-            sessions don't need it.
-          </p>
-        </div>
-
-        <div className="mt-3">
-          <label htmlFor="act-details" className={labelCls}>
-            Activity details
-          </label>
-          <textarea
-            id="act-details"
-            rows={2}
-            value={value.details}
-            onChange={(e) => onChange({ details: e.target.value })}
-            placeholder={DETAIL_PLACEHOLDERS[category]}
-            className={`${fieldCls} resize-y leading-relaxed`}
-          />
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            Laps, elevation, exercises, sets, reps — whatever fits this
-            activity.
-          </p>
-        </div>
-
-        <div className="mt-3">
-          <label htmlFor="act-notes" className={labelCls}>
-            Notes
-          </label>
-          <textarea
-            id="act-notes"
-            rows={2}
-            value={value.notes}
-            onChange={(e) => onChange({ notes: e.target.value })}
-            placeholder="How it went, who with, conditions — anything you want to remember."
-            className={`${fieldCls} resize-y leading-relaxed`}
-          />
-        </div>
+      {/* ── Description ──────────────────────────────────────────── */}
+      <div>
+        <label htmlFor="act-notes" className={labelCls}>
+          Description{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
+        </label>
+        <textarea
+          id="act-notes"
+          rows={2}
+          value={value.description}
+          onChange={(e) => onChange({ description: e.target.value })}
+          placeholder="How it went, who with — anything you want to remember."
+          className={`${fieldCls} resize-y leading-relaxed`}
+        />
       </div>
 
       {footer}
 
-      {/* ── Privacy & sharing ───────────────────────────────────────── */}
+      {/* ── Privacy & sharing ─────────────────────────────────────── */}
       {showShare && (
-      <fieldset className="rounded-2xl border border-border bg-card p-4">
-        <legend className="px-1 text-[13px] font-semibold text-foreground">
-          Privacy
-        </legend>
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={value.share}
-            onChange={(e) => onChange({ share: e.target.checked })}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
-          />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
-              Share this activity with friends
-            </span>
-            <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-              Off by default. Your transcript, notes, effort and any calorie
-              estimate are never published — only the activity name, duration
-              and date.
-            </span>
-          </span>
-        </label>
-
-        {value.share && (
-          <div className="mt-3">
-            <label htmlFor="act-share-note" className={labelCls}>
-              Message{" "}
-              <span className="font-normal text-muted-foreground">
-                (optional)
-              </span>
-            </label>
+        <fieldset className="rounded-2xl border border-border bg-card p-4">
+          <legend className="px-1 text-[13px] font-semibold text-foreground">
+            Privacy
+          </legend>
+          <label className="flex cursor-pointer items-start gap-3">
             <input
-              id="act-share-note"
-              type="text"
-              maxLength={320}
-              value={value.shareNote}
-              onChange={(e) => onChange({ shareNote: e.target.value })}
-              placeholder="e.g. Morning swim before work"
-              className={fieldCls}
+              type="checkbox"
+              checked={value.share}
+              onChange={(e) => onChange({ share: e.target.checked })}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
             />
-            {errors.shareNote ? (
-              <p role="alert" className="mt-1.5 text-xs text-error">
-                {errors.shareNote}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                You can also share later from the Community page.
-              </p>
-            )}
-          </div>
-        )}
-      </fieldset>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Share this activity with friends
+              </span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                Off by default. Only the activity name, duration and date are
+                published.
+              </span>
+            </span>
+          </label>
+
+          {value.share && (
+            <div className="mt-3">
+              <label htmlFor="act-share-note" className={labelCls}>
+                Message{" "}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </label>
+              <input
+                id="act-share-note"
+                type="text"
+                maxLength={320}
+                value={value.shareNote}
+                onChange={(e) => onChange({ shareNote: e.target.value })}
+                placeholder="e.g. Morning swim before work"
+                className={fieldCls}
+              />
+              {errors.shareNote ? (
+                <p role="alert" className="mt-1.5 text-xs text-error">
+                  {errors.shareNote}
+                </p>
+              ) : (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  You can also share later from the Community page.
+                </p>
+              )}
+            </div>
+          )}
+        </fieldset>
       )}
 
       <Button type="submit" size="lg" full loading={saving}>

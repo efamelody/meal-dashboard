@@ -394,7 +394,7 @@ export default function PlannerPage() {
       </PageHeader>
 
       {/* Week at a glance */}
-      <Card>
+      <Card className="hidden lg:block">
         <CardHead
           title="Week at a glance"
           icon={<ChartLine size={16} className="text-primary" />}

@@ -3,27 +3,29 @@
 // tested independently of the UI.
 
 import { toISODate } from "./dates"
-import { inferActivityCategory } from "./activityMeta"
-import type { Activity, ISODate, Intensity } from "./types"
+import type { Activity, ActivityType, Feel, ISODate, Intensity } from "./types"
 
 export interface ActivityFormValue {
-  /** Free text — any activity name the user types. */
+  /** Top-level category the user picked (drives the icon). */
+  category: ActivityType
+  /** The chosen type ("Walk", "Full body") or custom text for "other". */
   name: string
   /** Minutes as a string so the input stays editable while typing. */
   durationMin: string
   date: ISODate
   /** "HH:MM" or "" (optional). */
   time: string
-  /** Kilometres as a string; "" = not provided. */
-  distanceKm: string
-  intensity: Intensity
-  details: string
-  notes: string
+  /** Self-reported effort. */
+  effort: Intensity
+  /** How it felt afterwards; "" = not chosen. */
+  feel: Feel | ""
+  /** Optional free-text description. */
+  description: string
   share: boolean
   shareNote: string
 }
 
-export type ActivityFormField = "name" | "durationMin" | "date" | "distanceKm" | "shareNote"
+export type ActivityFormField = "name" | "durationMin" | "date" | "shareNote"
 
 export type ActivityFormErrors = Partial<Record<ActivityFormField, string>>
 
@@ -32,14 +34,14 @@ export const MAX_SHARE_NOTE = 280
 
 export function emptyActivityForm(today: ISODate): ActivityFormValue {
   return {
+    category: "cardio",
     name: "",
     durationMin: "30",
     date: today,
     time: "",
-    distanceKm: "",
-    intensity: "unknown",
-    details: "",
-    notes: "",
+    effort: "moderate",
+    feel: "",
+    description: "",
     share: false,
     shareNote: "",
   }
@@ -50,11 +52,10 @@ export function validateActivityForm(
 ): ActivityFormErrors {
   const errors: ActivityFormErrors = {}
 
-  const name = value.name.trim()
-  if (!name) {
-    errors.name = "Add what you did — e.g. Swimming, a walk, or a gym session."
-  } else if (name.length > 60) {
-    errors.name = "Keep the activity name under 60 characters."
+  if (!value.name.trim()) {
+    errors.name = "Pick what you did — or type your own."
+  } else if (value.name.trim().length > 60) {
+    errors.name = "Keep the name under 60 characters."
   }
 
   const rawDuration = value.durationMin.trim()
@@ -73,15 +74,6 @@ export function validateActivityForm(
     errors.date = "Pick a valid date."
   }
 
-  if (value.distanceKm.trim()) {
-    const distance = Number(value.distanceKm)
-    if (!Number.isFinite(distance) || distance <= 0) {
-      errors.distanceKm = "Distance must be a positive number in kilometres."
-    } else if (distance > 2000) {
-      errors.distanceKm = "That distance looks too large — kilometres only."
-    }
-  }
-
   if (value.share && value.shareNote.trim().length > MAX_SHARE_NOTE) {
     errors.shareNote = `Keep the shared message under ${MAX_SHARE_NOTE} characters.`
   }
@@ -91,40 +83,24 @@ export function validateActivityForm(
 
 export interface ActivityInputDraft extends Omit<Activity, "id" | "user_id"> {}
 
-/** Map the form onto a stored activity (category inferred from the name). */
+/** Map the form onto a stored activity. */
 export function toActivityInput(
   value: ActivityFormValue,
   today: ISODate = toISODate(new Date()),
 ): ActivityInputDraft {
   const duration = Math.max(1, Math.round(Number(value.durationMin) || 0))
-  const distance = value.distanceKm.trim()
-    ? Math.round(Number(value.distanceKm) * 100) / 100
-    : null
 
   return {
     date: value.date,
-    activity_type: inferActivityCategory(value.name),
+    activity_type: value.category,
     duration_min: duration,
     // A future date is a plan, not a log — matches Home's planned/completed.
     status: value.date > today ? "planned" : "completed",
     scheduled_time: value.time.trim() || null,
-    notes: value.notes.trim() || null,
+    notes: value.description.trim() || null,
     name: value.name.trim(),
-    distance_km: Number.isFinite(distance as number) ? distance : null,
-    intensity: value.intensity,
-    details: value.details.trim() || null,
+    intensity: value.effort,
+    feel: value.feel || null,
     shared_at: value.share ? new Date().toISOString() : null,
   }
-}
-
-/** Human summary of what the user actually provided (for the estimate card). */
-export function providedFacts(value: ActivityFormValue): string[] {
-  const facts: string[] = []
-  if (value.name.trim()) facts.push(value.name.trim())
-  const duration = Number(value.durationMin)
-  if (Number.isFinite(duration) && duration > 0) facts.push(`${duration} min`)
-  if (value.distanceKm.trim()) facts.push(`${value.distanceKm.trim()} km`)
-  if (value.time.trim()) facts.push(`at ${value.time.trim()}`)
-  if (value.details.trim()) facts.push(value.details.trim())
-  return facts
 }

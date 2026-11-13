@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import {
-  AlertCircle,
-  ArrowRight,
-  CalendarDays,
-  Dumbbell,
-  Lock,
-  Trash2,
-} from "lucide-react"
+import { ArrowRight, CalendarDays, Dumbbell, Lock, Trash2 } from "lucide-react"
 import { useAuth } from "../context/AuthContext"
 import { useToast } from "../components/Toast"
 import { PageContainer, PageHeader } from "../components/PageHeader"
@@ -22,25 +15,20 @@ import {
   InlineNote,
 } from "../components/ui"
 import UniversalActivityForm from "../components/activity/UniversalActivityForm"
-import VoiceDescribePanel from "../components/activity/VoiceDescribePanel"
 import CalorieEstimateCard from "../components/activity/CalorieEstimateCard"
 import {
   ACTIVITY_ICONS,
-  INTENSITY_LABELS,
+  FEEL_META,
   activityDisplayLabel,
-  inferActivityCategory,
 } from "../lib/activityMeta"
 import {
   emptyActivityForm,
-  providedFacts,
   toActivityInput,
   validateActivityForm,
   type ActivityFormErrors,
   type ActivityFormValue,
 } from "../lib/activityForm"
 import { estimateCalories } from "../lib/calorieEstimate"
-import type { DraftInterpretation } from "../lib/activityAi"
-import { interpretActivityDescription } from "../lib/activityAi"
 import {
   addActivity,
   createPost,
@@ -57,14 +45,6 @@ import type { Activity, UserProfile } from "../lib/types"
 const TODAY = toISODate(new Date())
 const LIST_START = addDays(TODAY, -13)
 
-interface DraftMeta {
-  source: "ai" | "local"
-  notice?: string
-  transcript: string
-  approximate: boolean
-  nameMissing: boolean
-}
-
 export default function ActivityLogPage() {
   const { session } = useAuth()
   const userId = session?.user?.id ?? null
@@ -76,11 +56,6 @@ export default function ActivityLogPage() {
   )
   const [errors, setErrors] = useState<ActivityFormErrors>({})
   const [saving, setSaving] = useState(false)
-  const [draftMeta, setDraftMeta] = useState<DraftMeta | null>(null)
-  const [reinterpreting, setReinterpreting] = useState(false)
-
-  const [estimateOpen, setEstimateOpen] = useState(false)
-  const [weightKg, setWeightKg] = useState("")
 
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [activities, setActivities] = useState<Activity[]>([])
@@ -127,46 +102,6 @@ export default function ActivityLogPage() {
     })
   }
 
-  // ── Draft application ─────────────────────────────────────────────
-  function applyDraft(interpretation: DraftInterpretation, transcript: string) {
-    const d = interpretation.draft
-    setForm((prev) => ({
-      ...prev,
-      name: d.name ?? prev.name,
-      durationMin:
-        d.duration_min != null ? String(d.duration_min) : prev.durationMin,
-      date: d.date ?? prev.date,
-      time: d.time ?? prev.time,
-      distanceKm:
-        d.distance_km != null ? String(d.distance_km) : prev.distanceKm,
-      intensity: d.intensity ?? prev.intensity,
-      details: d.details ?? prev.details,
-      notes: d.notes ?? prev.notes,
-    }))
-    setErrors({})
-    setDraftMeta({
-      source: interpretation.source,
-      notice: interpretation.notice,
-      transcript,
-      approximate: d.duration_approximate,
-      nameMissing: !d.name,
-    })
-    if (d.duration_min != null) setEstimateOpen(true)
-  }
-
-  async function retryInterpret() {
-    if (!draftMeta || reinterpreting) return
-    setReinterpreting(true)
-    try {
-      const interpretation = await interpretActivityDescription(
-        draftMeta.transcript,
-      )
-      applyDraft(interpretation, draftMeta.transcript)
-    } finally {
-      setReinterpreting(false)
-    }
-  }
-
   // ── Save ──────────────────────────────────────────────────────────
   async function handleSave() {
     const found = validateActivityForm(form)
@@ -177,7 +112,6 @@ export default function ActivityLogPage() {
         name: "act-name",
         durationMin: "act-duration",
         date: "act-date",
-        distanceKm: "act-distance",
         shareNote: "act-share-note",
       }
       const first = Object.keys(found)[0]
@@ -218,8 +152,8 @@ export default function ActivityLogPage() {
                 name: saved.name ?? undefined,
                 duration_min: saved.duration_min,
                 status: saved.status,
-                distance_km: saved.distance_km ?? undefined,
                 intensity: saved.intensity ?? undefined,
+                feel: saved.feel ?? undefined,
               },
             })
             shared = true
@@ -250,9 +184,6 @@ export default function ActivityLogPage() {
 
       setForm(emptyActivityForm(form.date))
       setErrors({})
-      setDraftMeta(null)
-      setEstimateOpen(false)
-      setWeightKg("")
     } catch (err) {
       console.error("addActivity:", err)
       toast("Could not save the activity — try again", "error")
@@ -278,51 +209,18 @@ export default function ActivityLogPage() {
   }
 
   // ── Derived ───────────────────────────────────────────────────────
-  const category = inferActivityCategory(form.name)
   const durationMin = Number(form.durationMin)
   const estimate = useMemo(
     () =>
       estimateCalories({
         name: form.name.trim() || null,
-        category,
-        intensity: form.intensity,
+        category: form.category,
+        intensity: form.effort,
         durationMin: Number.isFinite(durationMin) ? durationMin : 0,
-        weightKg: weightKg.trim() ? Number(weightKg) : null,
+        weightKg: profile?.weight_kg ?? null,
       }),
-    [form.name, category, form.intensity, durationMin, weightKg],
+    [form.name, form.category, form.effort, durationMin, profile],
   )
-
-  const provided = useMemo(() => {
-    const facts = providedFacts(form)
-    if (form.intensity !== "unknown") {
-      facts.push(`${INTENSITY_LABELS[form.intensity].toLowerCase()} effort`)
-    }
-    return facts
-  }, [form])
-
-  const inferred = useMemo(() => {
-    const list: string[] = []
-    const name = form.name.trim()
-    if (name) {
-      if (estimate.status === "ok") {
-        const label = estimate.label
-        list.push(
-          label.toLowerCase().includes(name.toLowerCase())
-            ? `Energy model: ${label}`
-            : `Energy model: ${label} (from “${name}”)`,
-        )
-      } else {
-        list.push(`No energy model yet for “${name}”`)
-      }
-    }
-    if (form.intensity === "unknown") {
-      list.push("effort not stated — full easy–vigorous range used")
-    }
-    if (draftMeta?.source === "local") {
-      list.push("description read on this device (AI unavailable)")
-    }
-    return list
-  }, [estimate, form.intensity, form.name, draftMeta])
 
   const recent = useMemo(() => {
     const merged = userId ? activities : [...previewActivities, ...activities]
@@ -339,7 +237,7 @@ export default function ActivityLogPage() {
     <PageContainer>
       <PageHeader
         title="Log activity"
-        subtitle="Any movement counts — swimming, walks, gym, dancing. Add the basics; everything else is optional and private by default."
+        subtitle="Pick a category, how long, and how it felt — done."
         actions={
           <Button
             variant="outline"
@@ -353,10 +251,8 @@ export default function ActivityLogPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-5">
-        {/* ── Voice + form ─────────────────────────────────────────── */}
-        <div className="space-y-4 lg:col-span-3">
-          <VoiceDescribePanel onDraft={applyDraft} />
-
+        {/* ── Form ─────────────────────────────────────────────────── */}
+        <div className="lg:col-span-3">
           <Card>
             <CardHead
               title="Activity details"
@@ -372,80 +268,6 @@ export default function ActivityLogPage() {
               }
             />
 
-            {draftMeta && (
-              <div className="mb-5 animate-fade-in-up rounded-2xl border border-[#d4e0ed] bg-blue-soft/60 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-semibold text-foreground">
-                      Draft from your description
-                    </p>
-                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                      “{draftMeta.transcript}”
-                    </p>
-                  </div>
-                  <Badge tone={draftMeta.source === "ai" ? "blue" : "neutral"}>
-                    {draftMeta.source === "ai"
-                      ? "Read with AI"
-                      : "Read on device"}
-                  </Badge>
-                </div>
-
-                <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  {form.name.trim() && (
-                    <Badge tone="sage">{form.name.trim()}</Badge>
-                  )}
-                  <Badge tone="neutral">
-                    {draftMeta.approximate ? "≈ " : ""}
-                    {form.durationMin || "?"} min
-                  </Badge>
-                  <Badge tone="neutral">
-                    effort: {INTENSITY_LABELS[form.intensity]}
-                  </Badge>
-                  {form.distanceKm.trim() && (
-                    <Badge tone="neutral">{form.distanceKm.trim()} km</Badge>
-                  )}
-                </div>
-
-                {draftMeta.nameMissing && !form.name.trim() && (
-                  <div className="mt-3">
-                    <InlineNote tone="warning" icon={<AlertCircle size={13} />}>
-                      We couldn&apos;t find a specific activity name in that
-                      description — add it in the Activity field below.
-                    </InlineNote>
-                  </div>
-                )}
-
-                {draftMeta.notice && (
-                  <div className="mt-3 space-y-2">
-                    <InlineNote tone="warning" icon={<AlertCircle size={13} />}>
-                      {draftMeta.notice}
-                    </InlineNote>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={retryInterpret}
-                      loading={reinterpreting}
-                    >
-                      Try the AI again
-                    </Button>
-                  </div>
-                )}
-
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#d4e0ed] pt-3">
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    Everything below is editable — fix anything we read wrong.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setDraftMeta(null)}
-                    className="shrink-0 text-[11px] font-medium text-primary hover:underline"
-                  >
-                    Clear draft
-                  </button>
-                </div>
-              </div>
-            )}
-
             <UniversalActivityForm
               value={form}
               errors={errors}
@@ -456,18 +278,7 @@ export default function ActivityLogPage() {
                 form.share ? "Save & share activity" : "Save activity"
               }
               showShare={FEATURES.communitySharing}
-              footer={
-                <CalorieEstimateCard
-                  open={estimateOpen}
-                  onToggle={() => setEstimateOpen((open) => !open)}
-                  result={estimate}
-                  provided={provided}
-                  inferred={inferred}
-                  weightKg={weightKg}
-                  onWeightChange={setWeightKg}
-                  profileWeightKg={profile?.weight_kg ?? null}
-                />
-              }
+              footer={<CalorieEstimateCard result={estimate} />}
             />
           </Card>
         </div>
@@ -511,14 +322,20 @@ export default function ActivityLogPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">
                           {activityDisplayLabel(activity)}
+                          {activity.feel ? (
+                            <span
+                              aria-hidden="true"
+                              className="ml-1.5"
+                              title={FEEL_META[activity.feel].label}
+                            >
+                              {FEEL_META[activity.feel].emoji}
+                            </span>
+                          ) : null}
                         </p>
                         <p className="tabular truncate text-xs text-muted-foreground">
                           {activity.duration_min} min · {activity.date}
                           {activity.scheduled_time
                             ? ` · ${activity.scheduled_time}`
-                            : ""}
-                          {activity.distance_km
-                            ? ` · ${activity.distance_km} km`
                             : ""}
                         </p>
                       </div>
@@ -544,9 +361,9 @@ export default function ActivityLogPage() {
 
           <InlineNote tone="sage" icon={<Lock size={14} />}>
             <span className="font-medium">Private by default. </span>
-            Nothing is published automatically — your transcript, notes, effort
-            and any calorie estimate stay on this record unless you tick “Share
-            this activity”.
+            Nothing is published automatically — your description, effort and
+            how you felt stay on this record unless you tick “Share this
+            activity”.
           </InlineNote>
 
           {!userId && (

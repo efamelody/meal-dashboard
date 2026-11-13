@@ -145,14 +145,14 @@ export function FoodFlagBadge({
   return (
     <span
       title={reason ?? undefined}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${
-        danger ? "bg-[#f6e3e1] text-error" : "bg-[#f6ecdb] text-warning"
-      } ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium max-w-full ${
+        showReason ? "flex-wrap" : "whitespace-nowrap"
+      } ${danger ? "bg-[#f6e3e1] text-error" : "bg-[#f6ecdb] text-warning"} ${className}`}
     >
       <Flag size={10} className="shrink-0" />
       {danger ? "Avoid" : "Limit"}
       {showReason && reason && (
-        <span className="font-normal whitespace-normal">· {reason}</span>
+        <span className="min-w-0 font-normal whitespace-normal">· {reason}</span>
       )}
     </span>
   )
